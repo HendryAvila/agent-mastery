@@ -301,12 +301,6 @@
   function handleScenarioComplete(score: number, maxScore: number) {
     courseStore.completeModule(MODULE_ID, score, maxScore);
     completed = true;
-    // Badge 'orchestrator' on excellent or good
-    // The BranchingScenario calls onComplete with the accumulated points
-    // We check the grade via the accumulated points
-    // excellent path: start(3) + parallel(3) + conflict-resolver(3) + final(3) = 12 out of 18
-    // good paths: various combos ~7-9
-    // We give badge if score >= 8 (roughly good or excellent)
     if (score >= 8) {
       const badge = courseStore.unlockBadge('orchestrator');
       if (badge) {
@@ -357,9 +351,24 @@
     <p class="text-agent-muted leading-relaxed mb-4">
       Por la misma razon que existen design patterns en OOP: son <strong class="text-agent-text">soluciones probadas a problemas recurrentes</strong>. No reinventes la rueda cada vez que necesites coordinar agentes. Estos patrones han sido validados por empresas como Anthropic, OpenAI, Microsoft y AWS en produccion real.
     </p>
-    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4">
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los patrones de orquestacion son al desarrollo de agentes lo que los patrones GoF (Gang of Four) son al desarrollo de software orientado a objetos. Asi como no reinventas Observer o Strategy cada vez que los necesitas, no deberias reinventar la coordinacion de agentes desde cero. Estos patrones encapsulan decadas de aprendizaje colectivo sobre como coordinar entidades autonomas que trabajan hacia un objetivo comun.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
+      <p class="text-sm text-agent-muted">Los patrones de orquestacion de agentes no fueron inventados desde cero para la IA. Muchos provienen de la ingenieria de sistemas distribuidos: Orchestrator-Worker es esencialmente el patron Master-Worker de computacion distribuida. Pipeline es el patron Unix de stdin/stdout. Hierarchical es la delegacion en capas de los sistemas de comando militar. Lo que cambia es el medio (LLMs en vez de procesos), pero los problemas fundamentales de coordinacion son los mismos.</p>
+    </div>
+
+    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4 mb-4">
       <p class="text-agent-accent font-bold text-sm">El principio guia</p>
-      <p class="text-sm text-agent-muted mt-1">Analiza las <strong class="text-agent-text">dependencias entre tareas</strong> ANTES de elegir un patron. Son independientes? Usa paralelo. Una necesita el output de otra? Usa pipeline. Necesitan coordinacion? Usa orquestador.</p>
+      <p class="text-sm text-agent-muted mt-1">Analiza las <strong class="text-agent-text">dependencias entre tareas</strong> ANTES de elegir un patron. Son independientes? Usa paralelo. Una necesita el output de otra? Usa pipeline. Necesitan coordinacion? Usa orquestador. Esta decision se toma en la fase de diseno, no se descubre en produccion.</p>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Elegir el patron porque suena impresionante en vez de porque resuelve tu problema. "Usamos orquestacion jerarquica de 3 niveles" suena genial en una presentacion, pero si tu problema se resuelve con un solo agente y 3 herramientas, acabas de crear complejidad gratuita. Anthropic lo dice claro: "start with the simplest approach".</p>
     </div>
   </section>
 
@@ -367,7 +376,7 @@
   <section class="mb-10 fade-in">
     <h2 class="text-2xl font-bold text-agent-text mb-4">2. Orchestrator-Worker</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      El patron mas comun y versatil. Un <strong class="text-agent-text">agente orquestador</strong> central recibe la tarea, la descompone en subtareas, las asigna a workers especializados, recopila resultados y sintetiza la respuesta final.
+      El patron mas comun y versatil. Un <strong class="text-agent-text">agente orquestador</strong> central recibe la tarea, la descompone en subtareas, las asigna a workers especializados, recopila resultados y sintetiza la respuesta final. Piensa en un director de orquesta: no toca ningun instrumento, pero coordina a todos los musicos para que la sinfonia suene coherente.
     </p>
     <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
       {@html `<pre class="code-block text-agent-highlight text-sm">USUARIO: "Haz un review de este PR"
@@ -384,6 +393,47 @@ ORQUESTADOR:
 WORKERS: ejecutan su analisis especializado
 ORQUESTADOR: combina y entrega al usuario</pre>`}
     </div>
+
+    <!-- Full pseudocode -->
+    <h3 class="text-lg font-bold text-agent-text mb-3">Pseudocodigo detallado</h3>
+    {@html `<pre class="code-block text-agent-highlight text-sm mb-4">def orchestrator(task, workers):
+    # 1. Descomposicion: el orquestador analiza la tarea
+    subtasks = llm_decompose(task)
+
+    # 2. Asignacion: distribuye a workers especializados
+    futures = []
+    for subtask in subtasks:
+        worker = select_best_worker(subtask, workers)
+        future = worker.execute_async(subtask)
+        futures.append(future)
+
+    # 3. Recoleccion: espera resultados (con timeout!)
+    results = []
+    for future in futures:
+        try:
+            result = await future.result(timeout=60)
+            results.append(result)
+        except TimeoutError:
+            results.append(fallback_result(subtask))
+
+    # 4. Resolucion de conflictos
+    conflicts = detect_contradictions(results)
+    if conflicts:
+        results = resolve_conflicts(conflicts, results)
+
+    # 5. Sintesis: combina en respuesta final
+    return llm_synthesize(results)</pre>`}
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">El manejo de errores del orquestador es CRITICO. Que pasa si un worker falla? Tienes tres opciones: (1) fallback a un resultado por defecto, (2) retry con el mismo o diferente worker, (3) continuar sin ese resultado y notificarlo. La opcion correcta depende de que tan critico es ese worker para el resultado final. Si el worker de seguridad falla, NO puedes continuar sin el.</p>
+    </div>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">Claude Code Agent Teams usa exactamente este patron. Cuando le pides una tarea compleja (como "refactoriza el modulo de autenticacion"), el agente principal descompone la tarea, lanza hasta 16 sub-agentes en paralelo, cada uno trabajando en un archivo o componente diferente, y despues sintetiza los cambios en un resultado coherente. El orquestador se asegura de que los cambios en un archivo no rompan las dependencias de otro.</p>
+    </div>
+
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-3">
         <p class="text-agent-success font-bold text-sm">Cuando usarlo</p>
@@ -391,6 +441,7 @@ ORQUESTADOR: combina y entrega al usuario</pre>`}
           <li>Tareas descomponibles en subtareas independientes</li>
           <li>Necesitas resultados combinados de multiples analisis</li>
           <li>La tarea no es trivial para un solo agente</li>
+          <li>Las subtareas se benefician de especializacion</li>
         </ul>
       </div>
       <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-3">
@@ -399,6 +450,7 @@ ORQUESTADOR: combina y entrega al usuario</pre>`}
           <li>La tarea es simple para un solo agente</li>
           <li>No hay subtareas claras para descomponer</li>
           <li>El overhead de coordinacion > beneficio</li>
+          <li>El resultado no requiere sintesis de multiples fuentes</li>
         </ul>
       </div>
     </div>
@@ -408,7 +460,7 @@ ORQUESTADOR: combina y entrega al usuario</pre>`}
   <section class="mb-10 fade-in">
     <h2 class="text-2xl font-bold text-agent-text mb-4">3. Manager Pattern</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Similar al Orchestrator-Worker pero con <strong class="text-agent-text">autoridad jerarquica</strong>. El manager no solo asigna tareas: revisa resultados, puede rechazarlos y pedir retrabajo. Como un tech lead haciendo code review.
+      Similar al Orchestrator-Worker pero con <strong class="text-agent-text">autoridad jerarquica</strong>. El manager no solo asigna tareas: revisa resultados, puede rechazarlos y pedir retrabajo. Como un tech lead haciendo code review: no acepta el primer draft, pide mejoras hasta que la calidad sea suficiente.
     </p>
     <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
       {@html `<pre class="code-block text-agent-highlight text-sm">MANAGER: "Worker 1, escribe la funcion de autenticacion"
@@ -424,9 +476,35 @@ WORKER 1: entrega version corregida
 MANAGER: revisa
 ├── "Aprobado. Worker 2, ahora escribe los tests."</pre>`}
     </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">La diferencia clave: quality gates</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Lo que distingue al Manager del Orchestrator es el <strong class="text-agent-text">ciclo de revision</strong>. El Manager implementa quality gates: checkpoints donde evalua si el output cumple con los estandares antes de avanzar. Esto es mas lento (multiples iteraciones) pero produce resultados de mayor calidad. El pseudocodigo del review loop es:
+    </p>
+
+    {@html `<pre class="code-block text-agent-highlight text-sm mb-4">def manager_review_loop(task, worker, max_retries=3):
+    for attempt in range(max_retries):
+        result = worker.execute(task)
+
+        review = manager.evaluate(result, task.criteria)
+
+        if review.approved:
+            return result
+        else:
+            # El manager da feedback especifico para mejorar
+            task = task.with_feedback(review.feedback)
+
+    # Si despues de N intentos no aprueba, escalar
+    return escalate_to_human(task, last_result=result)</pre>`}
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">En generacion de codigo para sistemas criticos (fintech, salud), el patron Manager es preferido sobre Orchestrator simple. Un agente escribe el codigo, y un agente reviewer verifica seguridad, cobertura de tests, y compliance con regulaciones antes de aprobar. Empresas como Stripe usan variantes de este patron donde cada cambio en el sistema de pagos pasa por multiples capas de revision automatizada.</p>
+    </div>
+
     <div class="bg-agent-warning/10 border border-agent-warning/30 rounded-lg p-4">
       <p class="text-agent-warning font-bold text-sm">Trade-off</p>
-      <p class="text-sm text-agent-muted mt-1">Mayor calidad por la revision, pero mas lento y caro (mas iteraciones = mas tokens). Usalo cuando la calidad del output es critica (codigo de produccion, documentacion legal, etc).</p>
+      <p class="text-sm text-agent-muted mt-1">Mayor calidad por la revision, pero mas lento y caro (mas iteraciones = mas tokens). Cada iteracion del review loop consume tokens de input (el resultado + el feedback) y output (el resultado corregido + la nueva evaluacion). Con 3 iteraciones, puedes estar consumiendo 6x los tokens de un pass directo. Usalo cuando la calidad del output es critica: codigo de produccion, documentacion legal, contenido publicable.</p>
     </div>
   </section>
 
@@ -436,6 +514,18 @@ MANAGER: revisa
     <p class="text-agent-muted leading-relaxed mb-4">
       Descentralizado: los agentes <strong class="text-agent-text">transfieren control</strong> a especialistas sin coordinador central. Como un triage de hospital: el medico general evalua y transfiere al especialista correcto.
     </p>
+
+    <!-- Hospital triage analogy expanded -->
+    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
+      <p class="text-agent-text font-bold text-sm mb-3">Analogia del Hospital (expandida):</p>
+      <div class="space-y-2 text-sm text-agent-muted">
+        <p><strong class="text-agent-text">Recepcion (Agente Triage):</strong> El paciente llega. El enfermero evalua sintomas y decide: "Esto es cardiologia". No intenta tratar, solo clasifica y redirige.</p>
+        <p><strong class="text-agent-text">Handoff al Cardiologo:</strong> El enfermero pasa al cardiologo solo la informacion relevante: "Paciente, 55 anos, dolor en el pecho, historial de hipertension". NO le pasa todo el historial medico completo.</p>
+        <p><strong class="text-agent-text">El Cardiologo trabaja:</strong> Examina, hace ECG, diagnostica. Si descubre que tambien necesita un nefrologo, hace handoff a nefrologia con los hallazgos relevantes.</p>
+        <p><strong class="text-agent-text">Resultado:</strong> Cada especialista trabaja en lo suyo con el contexto minimo necesario.</p>
+      </div>
+    </div>
+
     <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
       {@html `<pre class="code-block text-agent-highlight text-sm">AGENTE TRIAGE: "Esta pregunta es sobre seguridad"
     → Handoff a AGENTE SEGURIDAD (con contexto relevante)
@@ -448,16 +538,43 @@ AGENTE CODIGO: analiza y devuelve resultado
 
 AGENTE SEGURIDAD: genera recomendacion final</pre>`}
     </div>
-    <p class="text-agent-muted leading-relaxed">
-      <strong class="text-agent-text">Clave del handoff:</strong> pasar solo el contexto relevante, no todo el historial. Un handoff con 50K tokens de contexto es ineficiente y caro. Filtra lo que el siguiente agente realmente necesita.
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">El fallo #1 en handoffs es la <strong class="text-agent-text">perdida de contexto</strong>. Cada handoff es una oportunidad para perder informacion. Si el agente de triage detecta que el usuario esta frustrado (señal emocional) pero solo pasa la pregunta tecnica al especialista, el especialista pierde informacion critica para adaptar su tono. Disena tus handoffs con un "context envelope" que incluya tanto el contenido tecnico como las señales conversacionales.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Implementacion en OpenAI Agents SDK</h3>
+    {@html `<pre class="code-block text-agent-highlight text-sm mb-4">from agents import Agent, Handoff
+
+# Los handoffs se definen como transiciones entre agentes
+triage = Agent(
+    name="triage",
+    instructions="Clasifica la solicitud del usuario...",
+    handoffs=[
+        Handoff(target=security_agent, filter="seguridad"),
+        Handoff(target=code_agent, filter="codigo"),
+        Handoff(target=docs_agent, filter="documentacion"),
+    ]
+)
+# El modelo decide CUANDO hacer handoff basado
+# en el contenido de la conversacion</pre>`}
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      <strong class="text-agent-text">Clave del handoff:</strong> pasar solo el contexto relevante, no todo el historial. Un handoff con 50K tokens de contexto es ineficiente y caro. Filtra lo que el siguiente agente realmente necesita. Preguntate: "Si yo fuera el siguiente agente, que informacion MINIMA necesito para hacer bien mi trabajo?"
     </p>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">Handoffs descentralizados funcionan cuando el flujo es relativamente lineal y predecible. Cuando tienes tareas paralelas que necesitan coordinacion, los handoffs generan deadlocks y race conditions. En ese caso, necesitas un coordinador central (Orchestrator). La regla de oro: si dibujas las dependencias y ves un grafo lineal, usa handoffs. Si ves un grafo con bifurcaciones y convergencias, usa un orquestador.</p>
+    </div>
   </section>
 
   <!-- Section 5: Hierarchical Pattern -->
   <section class="mb-10 fade-in">
     <h2 class="text-2xl font-bold text-agent-text mb-4">5. Hierarchical Pattern</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Multiples niveles de jerarquia: <strong class="text-agent-text">director > managers > workers</strong>. Para problemas muy complejos que necesitan descomposicion en capas.
+      Multiples niveles de jerarquia: <strong class="text-agent-text">director > managers > workers</strong>. Para problemas muy complejos que necesitan descomposicion en capas. Piensa en la estructura de una empresa: el CEO define la estrategia, los VPs la descomponen en iniciativas, los managers las convierten en tareas, y los ingenieros las ejecutan.
     </p>
     <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
       {@html `<pre class="code-block text-agent-highlight text-sm">DIRECTOR: "Migrar el monolito a microservicios"
@@ -472,9 +589,39 @@ AGENTE SEGURIDAD: genera recomendacion final</pre>`}
     ├── WORKER: Configurar Kubernetes
     └── WORKER: Disenar CI/CD pipelines</pre>`}
     </div>
-    <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4">
-      <p class="text-agent-danger font-bold text-sm">Riesgo principal</p>
-      <p class="text-sm text-agent-muted mt-1">Perdida de contexto entre niveles. Cada handoff vertical pierde informacion. Si el director pide A, el manager interpreta B, y el worker ejecuta C, el resultado esta roto. Mitigacion: pasar instrucciones explicitas y verificar resultados en cada nivel.</p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo de 3 niveles</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El patron jerarquico funciona mejor cuando la tarea tiene <strong class="text-agent-text">dominios claramente separados</strong>. En el ejemplo anterior, Backend, Frontend e Infra son dominios con expertise distinto. Un worker de Backend no necesita saber de Kubernetes, y un worker de Infra no necesita saber de React. Los managers actuan como traductores de contexto: el director habla en terminos de negocio ("migrar a microservicios"), los managers lo traducen a terminos tecnicos de su dominio ("separar el servicio de autenticacion"), y los workers ejecutan tareas atomicas.
+    </p>
+
+    <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4 mb-4">
+      <p class="text-agent-danger font-bold text-sm">Riesgo principal: perdida de contexto entre niveles</p>
+      <p class="text-sm text-agent-muted mt-1">Cada handoff vertical pierde informacion. Es el equivalente agentico del "telefono descompuesto". Si el director pide "migrar a microservicios manteniendo zero downtime", el manager puede perder el "zero downtime" al descomponer, y el worker puede implementar sin esa restriccion critica. Mitigacion: cada nivel debe pasar instrucciones EXPLICITAS con los requisitos no-funcionales, y el resultado de cada nivel debe verificarse contra los requisitos del nivel superior.</p>
+    </div>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
+      <p class="text-sm text-agent-muted">En la practica, muy pocos sistemas de agentes en produccion usan mas de 2 niveles de jerarquia. La razon es economica: cada nivel adicional multiplica los costos (mas LLM calls) y la latencia (mas roundtrips). Anthropic recomienda que si crees necesitar 3+ niveles, probablemente tu problema puede reformularse con menos capas de abstraccion.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-3">
+        <p class="text-agent-success font-bold text-sm">Cuando usarlo</p>
+        <ul class="text-xs text-agent-muted mt-1 space-y-1">
+          <li>Problemas con dominios claramente separados</li>
+          <li>Cuando cada dominio necesita expertise especializado</li>
+          <li>Tareas muy complejas que no caben en 2 niveles</li>
+        </ul>
+      </div>
+      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-3">
+        <p class="text-agent-danger font-bold text-sm">Cuando evitarlo</p>
+        <ul class="text-xs text-agent-muted mt-1 space-y-1">
+          <li>El problema se resuelve con Orchestrator-Worker plano</li>
+          <li>Los dominios no estan claramente separados</li>
+          <li>El presupuesto de tokens es limitado</li>
+        </ul>
+      </div>
     </div>
   </section>
 
@@ -482,28 +629,43 @@ AGENTE SEGURIDAD: genera recomendacion final</pre>`}
   <section class="mb-10 fade-in">
     <h2 class="text-2xl font-bold text-agent-text mb-4">6. Pipeline Pattern</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Secuencial y predecible: el <strong class="text-agent-text">output de un agente es el input del siguiente</strong>. Cada agente transforma o enriquece los datos. Facil de debuggear porque sabes exactamente donde fallo.
+      Secuencial y predecible: el <strong class="text-agent-text">output de un agente es el input del siguiente</strong>. Cada agente transforma o enriquece los datos. Facil de debuggear porque sabes exactamente donde fallo. Piensa en una linea de ensamblaje de fabrica: cada estacion agrega algo al producto.
     </p>
+
+    <!-- Real pipeline example -->
+    <h3 class="text-lg font-bold text-agent-text mb-3">Pipeline real: Code Generation</h3>
     <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">AGENTE 1 (Investigacion)
-    → output: datos crudos, fuentes, hallazgos
-        │
-AGENTE 2 (Analisis)
-    → output: insights, patrones, conclusiones
-        │
-AGENTE 3 (Redaccion)
-    → output: borrador del documento
-        │
-AGENTE 4 (Revision)
-    → output: documento final editado y verificado</pre>`}
+      {@html `<pre class="code-block text-agent-highlight text-sm">AGENTE 1: Code Generator
+  input:  "Crea una API REST para gestionar usuarios"
+  output: codigo Python con FastAPI
+      │
+AGENTE 2: Code Reviewer
+  input:  codigo generado por Agente 1
+  output: codigo + lista de issues encontrados
+      │
+AGENTE 3: Test Writer
+  input:  codigo + issues del Agente 2
+  output: codigo + tests unitarios + tests de integracion
+      │
+AGENTE 4: Formatter + Linter
+  input:  codigo completo + tests
+  output: codigo formateado (black, isort) + badge de calidad
+
+Resultado final: codigo production-ready con tests</pre>`}
     </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Nota como cada agente <strong class="text-agent-text">enriquece</strong> lo que recibe del anterior. El Code Generator produce un borrador, el Reviewer lo mejora, el Test Writer agrega tests, y el Formatter lo limpia. Cada paso agrega valor. Si algo falla en el paso 3, sabes exactamente que el problema esta en la generacion de tests, no en el codigo original ni en el formateo.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
       <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-3">
         <p class="text-agent-success font-bold text-sm">Ventajas</p>
         <ul class="text-xs text-agent-muted mt-1 space-y-1">
           <li>Simple de entender y debuggear</li>
           <li>Cada paso tiene input/output claro</li>
           <li>Facil de agregar o quitar pasos</li>
+          <li>Cada agente puede tener su propio modelo optimizado</li>
         </ul>
       </div>
       <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-3">
@@ -511,9 +673,15 @@ AGENTE 4 (Revision)
         <ul class="text-xs text-agent-muted mt-1 space-y-1">
           <li>Tiempo total = suma de todos los pasos</li>
           <li>Tareas independientes son forzadas a ser secuenciales</li>
-          <li>Un paso lento bloquea todo</li>
+          <li>Un paso lento bloquea todo el pipeline</li>
+          <li>El contexto crece con cada paso (mas tokens)</li>
         </ul>
       </div>
+    </div>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">El pipeline es el patron mas predecible y facil de debuggear, pero tiene un costo escondido: <strong class="text-agent-text">acumulacion de contexto</strong>. Si el Agente 1 genera 2K tokens de codigo, el Agente 2 recibe 2K + su prompt, genera 3K de output, y el Agente 3 recibe 3K + su prompt. Para el ultimo agente, el input puede ser enorme. Mitiga esto filtrando el contexto: cada agente solo recibe lo que NECESITA del paso anterior, no todo el historial.</p>
     </div>
   </section>
 
@@ -534,9 +702,35 @@ Secuencial: 30 + 20 + 25 = 75 segundos
 Paralelo:   max(30, 20, 25) = 30 segundos
 Ahorro:     60% del tiempo</pre>`}
     </div>
-    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4">
-      <p class="text-agent-accent font-bold text-sm">Regla de oro</p>
-      <p class="text-sm text-agent-muted mt-1">Antes de paralelizar, preguntate: "Si el worker B no existiera, el worker A podria hacer su trabajo completo?" Si la respuesta es SI, son independientes y puedes paralelizar. Si es NO, hay una dependencia que debes respetar.</p>
+
+    <!-- Timing diagram -->
+    <h3 class="text-lg font-bold text-agent-text mb-3">Diagrama de tiempos</h3>
+    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
+      {@html `<pre class="code-block text-agent-highlight text-sm">Secuencial:
+|===Worker A (30s)===|===Worker B (20s)===|===Worker C (25s)===|
+                                                               75s
+
+Paralelo:
+|===Worker A (30s)=========|
+|===Worker B (20s)==|       |
+|===Worker C (25s)======|  |
+                           → JOIN → Resultado
+                           30s total</pre>`}
+    </div>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">Claude Code Agent Teams puede lanzar hasta 16 sub-agentes en paralelo. Si necesitas refactorizar 16 archivos independientes, en vez de procesarlos uno a uno (secuencial), 16 agentes trabajan simultaneamente. El tiempo total es el del archivo mas complejo, no la suma de todos. Para tareas con muchos componentes independientes, la diferencia entre 15 minutos secuenciales y 1 minuto en paralelo es transformativa.</p>
+    </div>
+
+    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4 mb-4">
+      <p class="text-agent-accent font-bold text-sm">Regla de oro del paralelismo</p>
+      <p class="text-sm text-agent-muted mt-1">Antes de paralelizar, preguntate: "Si el worker B no existiera, el worker A podria hacer su trabajo completo?" Si la respuesta es SI, son independientes y puedes paralelizar. Si es NO, hay una dependencia que debes respetar. Es la misma prueba que harias para determinar si dos funciones pueden ejecutarse en threads separados sin locks.</p>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Paralelizar tareas que PARECEN independientes pero NO lo son. Ejemplo: un agente escribe un modulo de autenticacion y otro escribe un modulo de autorizacion. Parecen independientes, pero ambos necesitan definir la interfaz User. Si trabajan en paralelo sin coordinar, pueden crear definiciones incompatibles. Analiza las dependencias de DATOS, no solo de TAREAS.</p>
     </div>
   </section>
 
@@ -546,7 +740,7 @@ Ahorro:     60% del tiempo</pre>`}
     <p class="text-agent-muted leading-relaxed mb-4">
       No hay un patron "mejor". Hay un patron <strong class="text-agent-text">correcto para cada problema</strong>. Usa esta guia de decision:
     </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4">
+    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
       {@html `<pre class="code-block text-agent-highlight text-sm">Tu problema requiere multiples agentes?
 │
 ├── NO → Un solo agente con buenas herramientas
@@ -571,6 +765,92 @@ Ahorro:     60% del tiempo</pre>`}
                 └── NO → Necesitas debate/revision?
                     │
                     └── SI → Conversacional (AutoGen)</pre>`}
+    </div>
+
+    <!-- Expanded decision matrix -->
+    <h3 class="text-lg font-bold text-agent-text mb-3">Matriz de decision expandida</h3>
+    <div class="bg-agent-card border border-agent-border rounded-lg overflow-x-auto mb-4">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-agent-border bg-agent-dark">
+            <th class="text-left text-agent-text py-3 px-4">Caracteristica del problema</th>
+            <th class="text-left text-agent-text py-3 px-4">Patron recomendado</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted text-xs">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-4">Subtareas independientes que necesitan sintesis</td>
+            <td class="py-2 px-4 text-agent-accent">Orchestrator-Worker (paralelo)</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-4">Calidad critica, el resultado debe pasar revision</td>
+            <td class="py-2 px-4 text-agent-accent">Manager Pattern</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-4">Flujo lineal donde cada paso transforma datos</td>
+            <td class="py-2 px-4 text-agent-accent">Pipeline</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-4">Routing a especialistas segun el tipo de solicitud</td>
+            <td class="py-2 px-4 text-agent-accent">Handoff</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-4">Dominios separados con multiples niveles de complejidad</td>
+            <td class="py-2 px-4 text-agent-accent">Hierarchical</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-4">Necesidad de debate, revision cruzada, consenso</td>
+            <td class="py-2 px-4 text-agent-accent">Conversacional (AutoGen)</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-4">Simple, un solo agente puede resolverlo</td>
+            <td class="py-2 px-4 text-agent-accent">No uses multi-agente. En serio.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- NEW Section: Patrones Combinados -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">9. Patrones Combinados</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      En sistemas de produccion reales, <strong class="text-agent-text">los patrones se combinan</strong>. No es "Orchestrator-Worker O Pipeline". Es "Orchestrator-Worker DONDE cada worker es un Pipeline de 3 pasos". Los patrones son bloques de Lego que se ensamblan segun la complejidad del problema.
+    </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo: Sistema de Code Review completo</h3>
+    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
+      {@html `<pre class="code-block text-agent-highlight text-sm">NIVEL 1: Handoff (routing)
+├── El agente triage clasifica el PR
+│   ├── PR pequeno (< 100 lineas) → Agente Simple (1 agente)
+│   └── PR grande (> 100 lineas) → Sistema Multi-Agente
+│
+NIVEL 2: Orchestrator-Worker (coordinacion)
+├── Orquestador descompone y lanza workers en PARALELO:
+│   ├── Worker Calidad (pipeline de 2 pasos):
+│   │   └── Analisis → Recomendaciones
+│   ├── Worker Seguridad (pipeline de 3 pasos):
+│   │   └── Scan → Verificacion → Reporte
+│   └── Worker Tests (1 paso)
+│
+NIVEL 3: Manager (calidad)
+├── Manager revisa el resumen sintetizado
+├── Si hay contradicciones → Agente Resolver Conflictos
+└── Si la calidad es insuficiente → Pedir retrabajo</pre>`}
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Este sistema combina <strong class="text-agent-text">Handoff</strong> (para routing inicial), <strong class="text-agent-text">Orchestrator-Worker</strong> (para coordinacion de analisis paralelos), <strong class="text-agent-text">Pipeline</strong> (dentro de cada worker), y <strong class="text-agent-text">Manager</strong> (para quality gate final). Cada patron resuelve un problema especifico en el sistema.
+    </p>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">La composicion de patrones funciona porque cada patron opera en un nivel de abstraccion diferente. El Handoff opera a nivel de routing, el Orchestrator a nivel de coordinacion, el Pipeline a nivel de transformacion, y el Manager a nivel de calidad. No compiten entre si: se complementan.</p>
+    </div>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">Los sistemas de agentes mas avanzados en produccion (como los de Anthropic, Google, y Microsoft) combinan multiples patrones. Un sistema de soporte al cliente podria usar Handoff para routing (ventas vs soporte vs billing), Orchestrator-Worker para tareas complejas de soporte (diagnosticar + resolver + verificar en paralelo), y Pipeline para el flujo de escalacion (agente L1 → agente L2 → humano).</p>
     </div>
   </section>
 

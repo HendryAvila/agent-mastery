@@ -195,6 +195,55 @@
     <p class="text-agent-muted leading-relaxed mb-4">
       Piensalo asi: el LLM es un arquitecto que dibuja planos. Los planos dicen "pon una pared aqui con estas dimensiones". Pero es el obrero (la aplicacion host) quien realmente construye la pared. Si el plano tiene un error, el obrero puede rechazarlo antes de construir algo mal.
     </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Como funciona por dentro: el entrenamiento</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los LLMs no nacen sabiendo hacer function calling. Son <strong class="text-agent-highlight">entrenados especificamente</strong> para reconocer cuando una tarea requiere una herramienta y para generar JSON valido como output. Durante el entrenamiento, el modelo ve miles de ejemplos de conversaciones donde una pregunta lleva a una tool call, y la tool call devuelve un resultado que se incorpora a la respuesta final.
+    </p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Tecnicamente, el modelo aprende a emitir tokens especiales que la infraestructura de la API interpreta como "esto es una tool call, no texto normal". Es como si el modelo aprendiera un segundo idioma: ademas de generar texto en lenguaje natural, puede generar instrucciones estructuradas en JSON. Los modelos mas recientes (Claude Opus 4.6, GPT-4o, Gemini 2.5) son extremadamente confiables en generar JSON valido, pero no siempre fue asi.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
+      <p class="text-sm text-agent-muted">Antes de que existiera function calling nativo (pre-junio 2023), los desarrolladores usaban REGEX para extraer tool calls del texto del modelo. Le decian al LLM en el system prompt: "Cuando quieras ejecutar una herramienta, escribe ACTION: nombre_herramienta(argumentos)". Luego parseaban el texto con expresiones regulares para encontrar ese patron. Era fragil, propenso a errores, y una pesadilla de mantener. El function calling nativo fue un salto cuantico en confiabilidad.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Anthropic vs OpenAI: diferencias de implementacion</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Aunque el concepto es el mismo, Anthropic y OpenAI implementan function calling de formas ligeramente diferentes:
+    </p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+        <h4 class="text-agent-accent font-bold text-sm mb-2">Anthropic (Claude)</h4>
+        <p class="text-xs text-agent-muted">Usa <strong class="text-agent-text">content blocks</strong> en la respuesta: una respuesta puede contener una mezcla de bloques de texto y bloques de <code class="text-agent-highlight bg-agent-darker px-1 rounded">tool_use</code>. Los resultados se envian como mensajes de tipo <code class="text-agent-highlight bg-agent-darker px-1 rounded">tool_result</code>. El modelo puede razonar en texto ANTES de emitir la tool call.</p>
+      </div>
+      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+        <h4 class="text-agent-warning font-bold text-sm mb-2">OpenAI (GPT)</h4>
+        <p class="text-xs text-agent-muted">Usa un campo <code class="text-agent-highlight bg-agent-darker px-1 rounded">tool_calls</code> en el mensaje del asistente. Los resultados se envian como mensajes con role <code class="text-agent-highlight bg-agent-darker px-1 rounded">tool</code>. Soporta "strict mode" que fuerza al modelo a adherirse exactamente al JSON Schema definido.</p>
+      </div>
+    </div>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La diferencia mas importante en la practica: Claude puede intercalar texto y tool calls en la misma respuesta, lo que permite "pensar en voz alta" mientras decide que herramienta usar. Esto es especialmente util para debugging: puedes ver el razonamiento del modelo antes de la accion.
+    </p>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Pensar que function calling es lo mismo que "plugins" o "integraciones". Los plugins son un concepto de PRODUCTO (una extension que agregas). Function calling es un mecanismo de INFRAESTRUCTURA: es como el LLM se comunica con el mundo exterior. Todos los plugins usan function calling por debajo, pero function calling es mucho mas que plugins.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">El impacto de function calling en los agentes</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Function calling es lo que convirtio a los LLMs de "generadores de texto sofisticados" a "agentes capaces de actuar en el mundo". Sin function calling, un LLM solo puede darte instrucciones textuales de que hacer. Con function calling, el LLM puede HACER las cosas directamente (a traves de la aplicacion host).
+    </p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Piensa en la diferencia entre pedirle a alguien una receta de cocina por chat (solo texto) vs tener un robot en tu cocina que sigue las instrucciones automaticamente (function calling). La receta es util, pero el robot que ejecuta la receta es transformacionalmente diferente. Eso es exactamente lo que function calling habilita para los agentes.
+    </p>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">OpenAI lanzo function calling el 13 de junio de 2023. En las semanas siguientes, surgieron decenas de proyectos que usaban esta capacidad: agentes de codigo, asistentes de base de datos, bots de automatizacion. La comunidad estaba lista: tenia los modelos y las ideas, solo le faltaba el mecanismo estructurado para conectarlos. Function calling fue la pieza que faltaba del puzzle.</p>
+    </div>
   </section>
 
   <!-- THEORY SECTION 2: Anatomia de una Tool Definition -->
@@ -269,9 +318,158 @@
       </div>
     </div>
 
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
       <p class="text-sm text-agent-accent font-bold mb-1">Regla de oro:</p>
       <p class="text-sm text-agent-muted">Si un humano no puede entender CUANDO usar tu herramienta leyendo solo la descripcion, el LLM tampoco podra. Escribe las descripciones como si fueran documentacion para un nuevo desarrollador del equipo.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Herramientas reales: que usa Claude Code por dentro</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Para que veas como se ven las tool definitions en un agente de produccion, estas son algunas de las herramientas reales que Claude Code usa internamente:
+    </p>
+
+    <div class="space-y-4 mb-6">
+      <div class="bg-agent-dark border border-agent-border rounded-lg overflow-hidden">
+        <div class="px-4 py-2 bg-agent-accent/10 border-b border-agent-accent/20">
+          <span class="text-sm font-bold text-agent-accent">Read - Leer archivos</span>
+        </div>
+        {@html `<pre class="code-block rounded-none border-none text-xs">{
+  "name": "Read",
+  "description": "Reads a file from the local
+    filesystem. Use when you need to see the
+    contents of a file. Supports text files,
+    images, and PDFs.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "file_path": {
+        "type": "string",
+        "description": "Absolute path to file"
+      },
+      "offset": {
+        "type": "number",
+        "description": "Line number to start"
+      },
+      "limit": {
+        "type": "number",
+        "description": "Number of lines to read"
+      }
+    },
+    "required": ["file_path"]
+  }
+}</pre>`}
+      </div>
+
+      <div class="bg-agent-dark border border-agent-border rounded-lg overflow-hidden">
+        <div class="px-4 py-2 bg-agent-success/10 border-b border-agent-success/20">
+          <span class="text-sm font-bold text-agent-success">Bash - Ejecutar comandos</span>
+        </div>
+        {@html `<pre class="code-block rounded-none border-none text-xs">{
+  "name": "Bash",
+  "description": "Executes a bash command.
+    Use for terminal operations like git,
+    npm, running tests, etc. Working
+    directory persists between calls.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "The command to execute"
+      },
+      "timeout": {
+        "type": "number",
+        "description": "Timeout in ms (max 600000)"
+      }
+    },
+    "required": ["command"]
+  }
+}</pre>`}
+      </div>
+
+      <div class="bg-agent-dark border border-agent-border rounded-lg overflow-hidden">
+        <div class="px-4 py-2 bg-agent-warning/10 border-b border-agent-warning/20">
+          <span class="text-sm font-bold text-agent-warning">Edit - Editar archivos</span>
+        </div>
+        {@html `<pre class="code-block rounded-none border-none text-xs">{
+  "name": "Edit",
+  "description": "Performs exact string
+    replacements in files. The old_string
+    must be UNIQUE in the file. Use replace_all
+    for renaming variables across the file.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "file_path": { "type": "string" },
+      "old_string": { "type": "string" },
+      "new_string": { "type": "string" },
+      "replace_all": {
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "required": ["file_path",
+      "old_string", "new_string"]
+  }
+}</pre>`}
+      </div>
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Observa los patrones en estas definiciones reales: nombres claros y especificos (<code class="text-agent-highlight bg-agent-darker px-1 rounded">Read</code> no <code class="text-agent-highlight bg-agent-darker px-1 rounded">do_file_stuff</code>), descripciones que explican CUANDO usar la herramienta, y parametros con tipos claros y descripciones. Cada parametro <code class="text-agent-highlight bg-agent-darker px-1 rounded">required</code> esta explicitamente marcado.
+    </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">JSON Schema en profundidad</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Las tool definitions usan <strong class="text-agent-highlight">JSON Schema</strong> para describir los parametros. Si no conoces JSON Schema, estos son los tipos fundamentales que necesitas:
+    </p>
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent font-bold">Tipo</th>
+            <th class="text-left py-2 px-3 text-agent-text font-bold">Uso</th>
+            <th class="text-left py-2 px-3 text-agent-text font-bold">Propiedades utiles</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">string</code></td>
+            <td class="py-2 px-3">Texto, paths, nombres</td>
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">enum</code> para valores fijos, <code class="text-agent-highlight bg-agent-darker px-1 rounded">pattern</code> para regex</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">number</code></td>
+            <td class="py-2 px-3">Contadores, timeouts, limites</td>
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">minimum</code>, <code class="text-agent-highlight bg-agent-darker px-1 rounded">maximum</code></td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">boolean</code></td>
+            <td class="py-2 px-3">Flags, opciones on/off</td>
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">default</code></td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">array</code></td>
+            <td class="py-2 px-3">Listas de items</td>
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">items</code> define el tipo de cada elemento</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">object</code></td>
+            <td class="py-2 px-3">Objetos anidados</td>
+            <td class="py-2 px-3"><code class="text-agent-highlight bg-agent-darker px-1 rounded">properties</code>, <code class="text-agent-highlight bg-agent-darker px-1 rounded">required</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Poner demasiadas herramientas confunde al LLM. Anthropic recomienda mantener el numero por debajo de ~20 herramientas por request. Si tienes 50 herramientas, agrupa las que se usan juntas y envia solo las relevantes al contexto actual. Cada herramienta que agregas es "ruido" que el modelo debe filtrar para elegir la correcta.</p>
+    </div>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">Las descriptions de las herramientas son tan importantes como el system prompt. El LLM usa las descriptions para decidir CUANDO usar cada herramienta. Si la description de <code class="text-agent-highlight bg-agent-darker px-1 rounded">read_file</code> dice "lee un archivo", y la de <code class="text-agent-highlight bg-agent-darker px-1 rounded">grep</code> dice "busca patrones en archivos", el modelo sabe que para encontrar donde se define una funcion debe usar grep, no leer todos los archivos uno por uno.</p>
     </div>
   </section>
 
@@ -279,7 +477,7 @@
   <section class="mb-10 fade-in">
     <h2 class="text-2xl font-bold text-agent-text mb-4">El Flujo Completo de un Tool Call</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Vamos a seguir el viaje completo de un tool call, paso a paso:
+      Vamos a seguir el viaje completo de un tool call, paso a paso. Esto es lo que sucede REALMENTE en la comunicacion entre tu aplicacion y la API del LLM:
     </p>
 
     <div class="space-y-4 mb-6">
@@ -331,6 +529,76 @@
         </div>
       </div>
     </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">El historial de mensajes: como se ve la conversacion completa</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Detras de bambalinas, la conversacion con tool calls se ve como una secuencia de mensajes con roles distintos. Entender esta estructura es fundamental para debuggear agentes:
+    </p>
+    {@html `<pre class="code-block text-xs mb-4">[
+  // Mensaje 1: System prompt + tools
+  { "role": "system", "content": "Eres un agente..." },
+
+  // Mensaje 2: El usuario pide algo
+  { "role": "user", "content": "Lee package.json" },
+
+  // Mensaje 3: El LLM responde con tool call
+  { "role": "assistant", "content": [
+    { "type": "text", "text": "Voy a leer el archivo..." },
+    { "type": "tool_use",
+      "id": "call_001",
+      "name": "read_file",
+      "input": { "path": "package.json" }
+    }
+  ]},
+
+  // Mensaje 4: Resultado de la herramienta
+  { "role": "user", "content": [
+    { "type": "tool_result",
+      "tool_use_id": "call_001",
+      "content": "{ \"dependencies\": { \"react\": \"19.1.0\" } }"
+    }
+  ]},
+
+  // Mensaje 5: Respuesta final del LLM
+  { "role": "assistant",
+    "content": "El proyecto usa React 19.1.0" }
+]</pre>`}
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Nota algo critico: el <strong class="text-agent-highlight">tool_result</strong> se envia como un mensaje del usuario. Desde la perspectiva del LLM, es como si el usuario respondiera con el resultado de la herramienta. Esto es importante porque cada tool call agrega DOS mensajes al historial (la solicitud + el resultado), consumiendo context window rapidamente.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
+      <p class="text-sm text-agent-muted">Cada tool call en Claude Code consume tokens tanto en la solicitud (el JSON de la tool call) como en el resultado (el output de la herramienta). Si un archivo tiene 500 lineas, esas 500 lineas van al context window. Un agente que lee 20 archivos de 500 lineas cada uno ya consumio 10,000 lineas de contexto. Por eso las herramientas como Grep son tan valiosas: buscan patrones especificos sin cargar archivos enteros.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Conversaciones multi-turno: tool call chains</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      En la practica, un agente raramente hace UN solo tool call. La situacion tipica es una <strong class="text-agent-highlight">cadena de tool calls</strong> donde el resultado de una herramienta alimenta la decision de usar la siguiente. Veamos un ejemplo con 3 tool calls encadenados:
+    </p>
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
+      <ol class="space-y-3 text-sm text-agent-muted">
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent font-bold shrink-0">TC1:</span>
+          <span><code class="text-agent-highlight bg-agent-darker px-1 rounded">grep("useState", "*.tsx")</code> - Busca archivos que usen useState. Resultado: 5 archivos encontrados.</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent font-bold shrink-0">TC2:</span>
+          <span><code class="text-agent-highlight bg-agent-darker px-1 rounded">read_file("src/hooks/useAuth.tsx")</code> - Lee el archivo mas relevante. Resultado: contenido del archivo.</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent font-bold shrink-0">TC3:</span>
+          <span><code class="text-agent-highlight bg-agent-darker px-1 rounded">edit("src/hooks/useAuth.tsx", old, new)</code> - Edita el bug encontrado. Resultado: archivo modificado.</span>
+        </li>
+      </ol>
+      <p class="text-xs text-agent-accent mt-3">Cada tool call depende del resultado del anterior. El agente no puede leer un archivo sin saber cual leer, y no puede editar sin haber leido primero.</p>
+    </div>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">La separacion entre "solicitud" (el LLM genera JSON) y "ejecucion" (la app ejecuta la funcion) es un patron de arquitectura llamado <strong class="text-agent-text">Command Pattern</strong>. El LLM genera comandos, la aplicacion los ejecuta. Esto habilita validacion, logging, rate limiting, sandboxing, y control de permisos. Sin esta separacion, el LLM tendria acceso directo a tu sistema sin ninguna barrera de seguridad.</p>
+    </div>
   </section>
 
   <!-- THEORY SECTION 4: Parallel Tool Calls -->
@@ -338,6 +606,10 @@
     <h2 class="text-2xl font-bold text-agent-text mb-4">Parallel Tool Calls</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
       Los modelos modernos pueden emitir <strong class="text-agent-highlight">multiples tool calls en una sola respuesta</strong> cuando las herramientas son independientes entre si. Esto es un multiplicador de rendimiento enorme.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Para entender POR QUE esto importa tanto, piensa en la latencia de un agente. Cada iteracion del agent loop tiene dos fuentes de latencia: el tiempo que tarda el LLM en generar la respuesta (~1-5 segundos) y el tiempo que tarda la herramienta en ejecutarse (~50ms a varios segundos). Si un agente necesita leer 5 archivos secuencialmente, son 5 iteraciones del loop, que significan 5 llamadas al LLM + 5 ejecuciones de herramientas. Con parallel calls, son 1 llamada al LLM + 5 ejecuciones simultaneas.
     </p>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -350,6 +622,7 @@
           <p>4. Espera resultado...</p>
           <p>5. Lee archivo C <span class="text-agent-muted">(500ms)</span></p>
           <p class="text-agent-danger font-bold mt-2">Total: ~1500ms + 3 LLM turns</p>
+          <p class="text-xs text-agent-danger">+ 3x latencia de LLM (~9 seg)</p>
         </div>
       </div>
 
@@ -360,13 +633,201 @@
           <p>2. Espera todos los resultados...</p>
           <p>3. Analiza los 3 resultados juntos</p>
           <p class="text-agent-success font-bold mt-2">Total: ~500ms + 1 LLM turn</p>
+          <p class="text-xs text-agent-success">+ 1x latencia de LLM (~3 seg)</p>
         </div>
       </div>
     </div>
 
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+    <h3 class="text-lg font-bold text-agent-text mb-3">Como decide el LLM usar parallel calls</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El LLM no necesita que le digas explicitamente "usa parallel calls". El modelo analiza la tarea y determina si las herramientas que necesita son <strong class="text-agent-highlight">independientes</strong> entre si. Si le pides "lee los archivos package.json, tsconfig.json y README.md", el modelo entiende que estas tres lecturas no dependen una de la otra y emite los tres tool calls en una sola respuesta.
+    </p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      En la API, esto se ve como una respuesta del assistant con multiples content blocks de tipo <code class="text-agent-highlight bg-agent-darker px-1 rounded">tool_use</code>. La aplicacion host recibe los tres, los ejecuta en paralelo (usando Promise.all, asyncio.gather, o similar), y devuelve los tres resultados al LLM en un solo mensaje.
+    </p>
+
+    {@html `<pre class="code-block text-xs mb-4">// El LLM emite 3 tool calls en una respuesta:
+{ "role": "assistant", "content": [
+  { "type": "text", "text": "Voy a leer los 3 archivos..." },
+  { "type": "tool_use", "id": "tc_1",
+    "name": "read_file",
+    "input": { "path": "package.json" } },
+  { "type": "tool_use", "id": "tc_2",
+    "name": "read_file",
+    "input": { "path": "tsconfig.json" } },
+  { "type": "tool_use", "id": "tc_3",
+    "name": "read_file",
+    "input": { "path": "README.md" } }
+]}
+
+// La app ejecuta los 3 en paralelo y devuelve:
+{ "role": "user", "content": [
+  { "type": "tool_result", "tool_use_id": "tc_1",
+    "content": "contenido de package.json..." },
+  { "type": "tool_result", "tool_use_id": "tc_2",
+    "content": "contenido de tsconfig.json..." },
+  { "type": "tool_result", "tool_use_id": "tc_3",
+    "content": "contenido de README.md..." }
+]}</pre>`}
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">Claude Code usa parallel tool calls agresivamente. Cuando le pides "revisa el estado del proyecto", puede emitir simultaneamente: <code class="text-agent-highlight bg-agent-darker px-1 rounded">git status</code>, <code class="text-agent-highlight bg-agent-darker px-1 rounded">git diff</code>, y <code class="text-agent-highlight bg-agent-darker px-1 rounded">git log</code>. Tres herramientas independientes ejecutadas en paralelo en lugar de secuencialmente. En tareas complejas, esto puede reducir el tiempo total del agente en un 50-70%.</p>
+    </div>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
       <p class="text-sm text-agent-accent font-bold mb-1">Cuando NO usar parallel calls:</p>
-      <p class="text-sm text-agent-muted">Cuando hay dependencias entre herramientas. Si necesitas LEER un archivo para saber que tests CORRER, no puedes ejecutarlos en paralelo. La planificacion debe identificar que es independiente y que es secuencial.</p>
+      <p class="text-sm text-agent-muted">Cuando hay dependencias entre herramientas. Si necesitas LEER un archivo para saber que tests CORRER, no puedes ejecutarlos en paralelo. La planificacion del LLM debe identificar que es independiente y que es secuencial. Un buen modelo lo hace automaticamente: no va a poner un <code class="text-agent-highlight bg-agent-darker px-1 rounded">edit_file</code> en paralelo con el <code class="text-agent-highlight bg-agent-darker px-1 rounded">read_file</code> del mismo archivo.</p>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 5: MCP -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">MCP: El Futuro del Tool Calling</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      <strong class="text-agent-highlight">Model Context Protocol (MCP)</strong> es un estandar abierto creado por Anthropic que revoluciona la forma en que los agentes se conectan con herramientas. En lugar de que cada agente defina sus propias herramientas de forma propietaria, MCP establece un protocolo universal para que CUALQUIER agente se conecte a CUALQUIER servidor de herramientas.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Piensa en MCP como el "USB de los agentes IA". Antes de USB, cada dispositivo tenia su propio conector. Antes de MCP, cada agente tenia su propio formato de herramientas. Con MCP, un servidor de herramientas (por ejemplo, uno que se conecta a GitHub) puede ser usado por Claude Code, por Cursor, por Roo Code, y por cualquier agente que implemente el protocolo.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="bg-agent-dark border border-agent-danger/30 rounded-lg p-4">
+        <h4 class="text-agent-danger font-bold text-sm mb-2">Sin MCP (antes)</h4>
+        <p class="text-xs text-agent-muted">Cada agente implementa sus propias integraciones. Claude Code tiene su conector de GitHub, Cursor tiene el suyo, Roo Code el suyo. Si quieres soportar una nueva API, necesitas escribir la integracion para CADA agente por separado. N agentes x M servicios = N*M integraciones.</p>
+      </div>
+      <div class="bg-agent-dark border border-agent-success/30 rounded-lg p-4">
+        <h4 class="text-agent-success font-bold text-sm mb-2">Con MCP (ahora)</h4>
+        <p class="text-xs text-agent-muted">Un servidor MCP expone herramientas via protocolo estandar. CUALQUIER agente compatible se conecta. Escribes el servidor MCP de GitHub UNA vez y funciona en todos los agentes. N agentes + M servidores = N+M integraciones. Dramaticamente mas eficiente.</p>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Como funciona MCP en la practica</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      MCP sigue una arquitectura cliente-servidor. El agente (Claude Code, Cursor, etc.) es el <strong class="text-agent-text">cliente MCP</strong>. Las herramientas se exponen a traves de un <strong class="text-agent-text">servidor MCP</strong> que puede ejecutarse localmente o en la nube. El servidor anuncia sus herramientas disponibles, y el cliente las descubre automaticamente y las agrega a las tool definitions que envia al LLM.
+    </p>
+
+    {@html `<pre class="code-block text-xs mb-4">// Ejemplo: configuracion MCP en Claude Code
+// archivo: .mcp.json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "ghp_xxx..." }
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": { "DATABASE_URL": "postgresql://..." }
+    }
+  }
+}</pre>`}
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Con esta configuracion, Claude Code automaticamente tiene acceso a herramientas de GitHub (crear PRs, leer issues, buscar repos) y PostgreSQL (consultar tablas, ejecutar queries) sin que nadie haya programado esas integraciones manualmente.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
+      <p class="text-sm text-agent-muted">En 2026, el ecosistema MCP tiene miles de servidores disponibles: bases de datos, APIs de SaaS, herramientas de DevOps, servicios de cloud, y mas. MCP paso de ser una propuesta de Anthropic a convertirse en un estandar de facto adoptado por la mayoria de agentes del mercado. Veremos MCP en detalle en el Modulo 4.</p>
+    </div>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">MCP no reemplaza function calling: se construye ENCIMA de function calling. Los servidores MCP exponen herramientas que internamente se convierten en tool definitions JSON Schema. El LLM no sabe (ni le importa) si una herramienta viene de MCP o esta hardcodeada. Lo que cambia es como se DESCUBREN y DISTRIBUYEN las herramientas, no como el LLM las usa.</p>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 6: Best Practices y Anti-patterns -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Best Practices y Anti-patterns</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Despues de ver como funciona tool calling, vamos a consolidar las mejores practicas y los errores mas comunes. Estos patrones vienen directamente de la experiencia de Anthropic, OpenAI, y la comunidad de desarrolladores de agentes.
+    </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Las 5 reglas del buen Tool Design</h3>
+    <div class="space-y-3 mb-6">
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-success/20 text-agent-success flex items-center justify-center text-xs font-bold">1</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Nombres descriptivos y especificos</p>
+          <p class="text-xs text-agent-muted"><code class="text-agent-highlight bg-agent-darker px-1 rounded">search_codebase</code> en vez de <code class="text-agent-danger bg-agent-darker px-1 rounded">search</code>. <code class="text-agent-highlight bg-agent-darker px-1 rounded">create_github_issue</code> en vez de <code class="text-agent-danger bg-agent-darker px-1 rounded">create</code>.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-success/20 text-agent-success flex items-center justify-center text-xs font-bold">2</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Descripciones que explican CUANDO usar la herramienta</p>
+          <p class="text-xs text-agent-muted">No solo QUE hace, sino CUANDO usarla. "Use when you need to find where a function is defined or used" es mejor que "Searches text".</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-success/20 text-agent-success flex items-center justify-center text-xs font-bold">3</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Parametros con tipos estrictos y descripciones claras</p>
+          <p class="text-xs text-agent-muted">Usa <code class="text-agent-highlight bg-agent-darker px-1 rounded">enum</code> para valores fijos, <code class="text-agent-highlight bg-agent-darker px-1 rounded">description</code> para cada parametro, y marca los <code class="text-agent-highlight bg-agent-darker px-1 rounded">required</code>.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-success/20 text-agent-success flex items-center justify-center text-xs font-bold">4</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Una herramienta = una responsabilidad</p>
+          <p class="text-xs text-agent-muted">No hagas mega-herramientas que hacen 10 cosas. Preferible 10 herramientas pequenas y especificas. El LLM elige mejor entre opciones claras.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-success/20 text-agent-success flex items-center justify-center text-xs font-bold">5</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Mensajes de error informativos en los resultados</p>
+          <p class="text-xs text-agent-muted">Cuando una herramienta falla, devuelve un mensaje claro de POR QUE fallo. "File not found: /src/foo.ts" es infinitamente mejor que "Error".</p>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Los 5 anti-patterns del Tool Calling</h3>
+    <div class="space-y-3 mb-6">
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-danger/20 text-agent-danger flex items-center justify-center text-xs font-bold">&#x2718;</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Mega-tools: una herramienta que hace todo</p>
+          <p class="text-xs text-agent-muted"><code class="text-agent-danger bg-agent-darker px-1 rounded">manage_everything(action="read|write|delete|search", target="file|db|api")</code> obliga al LLM a generar parametros complejos en vez de elegir la herramienta correcta.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-danger/20 text-agent-danger flex items-center justify-center text-xs font-bold">&#x2718;</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Tool spam: 50+ herramientas en un solo request</p>
+          <p class="text-xs text-agent-muted">Cada herramienta consume tokens de contexto y confunde al modelo. Mantene el numero bajo 20. Si necesitas mas, filtra por contexto.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-danger/20 text-agent-danger flex items-center justify-center text-xs font-bold">&#x2718;</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Descripciones vacias o genericas</p>
+          <p class="text-xs text-agent-muted">"Does stuff" no le dice nada al LLM. "Searches" no dice QUE busca ni DONDE. Las descripciones son la documentacion del agente.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-danger/20 text-agent-danger flex items-center justify-center text-xs font-bold">&#x2718;</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">No validar parametros en la ejecucion</p>
+          <p class="text-xs text-agent-muted">El LLM puede generar parametros invalidos (paths inexistentes, numeros negativos). La app host DEBE validar antes de ejecutar.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="shrink-0 w-6 h-6 rounded-full bg-agent-danger/20 text-agent-danger flex items-center justify-center text-xs font-bold">&#x2718;</span>
+        <div>
+          <p class="text-sm text-agent-text font-bold">Resultados gigantes sin truncar</p>
+          <p class="text-xs text-agent-muted">Si una herramienta devuelve 10,000 lineas, todo eso va al context window. Trunca o resume los resultados para no desperdiciar contexto.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">El equipo de Claude Code descubrio que agregar descripciones detalladas a las herramientas internas mejoro la precision de seleccion de herramientas en un 30%+. La herramienta <code class="text-agent-highlight bg-agent-darker px-1 rounded">Grep</code> originalmente decia "Search for text". La nueva descripcion explica CUANDO usar Grep vs Read vs Glob: "Use Grep when you need to find files containing a specific pattern. Use Glob when you need to find files by name. Use Read when you already know which file to look at."</p>
     </div>
   </section>
 
