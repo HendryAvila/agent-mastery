@@ -1,0 +1,116 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-agent-dark: #0a1420;
+  --color-agent-darker: #060e18;
+  --color-agent-card: #0f1d2e;
+  --color-agent-border: #1a3348;
+  --color-agent-accent: #06b6d4;
+  --color-agent-accent-hover: #22d3ee;
+  --color-agent-success: #22c55e;
+  --color-agent-danger: #ef4444;
+  --color-agent-info: #3b82f6;
+  --color-agent-warning: #eab308;
+  --color-agent-text: #f8fafc;
+  --color-agent-muted: #94a3b8;
+  --color-agent-highlight: #67e8f9;
+  --color-agent-glow: #06b6d4;
+}
+
+@layer base {
+  body {
+    @apply bg-agent-darker text-agent-text font-sans antialiased;
+  }
+
+  ::selection {
+    @apply bg-agent-accent/30 text-white;
+  }
+
+  h1, h2, h3 {
+    @apply text-agent-text font-bold;
+  }
+}
+
+@utility glow-accent {
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-agent-accent hover:bg-agent-accent-hover text-agent-darker font-bold py-3 px-6 rounded-lg transition-all duration-200 cursor-pointer inline-flex items-center gap-2 text-sm uppercase tracking-wider;
+  }
+
+  .btn-secondary {
+    @apply border border-agent-border hover:border-agent-accent text-agent-muted hover:text-agent-accent py-3 px-6 rounded-lg transition-all duration-200 cursor-pointer inline-flex items-center gap-2 text-sm;
+  }
+
+  .btn-danger {
+    @apply bg-agent-danger/20 hover:bg-agent-danger/40 text-agent-danger border border-agent-danger/30 font-bold py-3 px-6 rounded-lg transition-all duration-200 cursor-pointer inline-flex items-center gap-2 text-sm;
+  }
+
+  .card {
+    @apply bg-agent-card border border-agent-border rounded-xl p-6;
+  }
+
+  .card-interactive {
+    @apply bg-agent-card border border-agent-border rounded-xl p-6 hover:border-agent-accent/50 transition-all duration-300 cursor-pointer;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold;
+  }
+
+  .fade-in {
+    animation: fade-in 0.5s ease-out;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slide-in {
+    animation: slide-in 0.3s ease-out;
+  }
+
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(6, 182, 212, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(6, 182, 212, 0.6); }
+  }
+
+  .code-block {
+    @apply bg-agent-darker border border-agent-border rounded-lg p-4 font-mono text-sm overflow-x-auto;
+  }
+
+  .flow-node {
+    @apply bg-agent-card border-2 border-agent-border rounded-xl p-4 text-center transition-all duration-500 cursor-pointer hover:border-agent-accent;
+  }
+
+  .flow-node-active {
+    @apply bg-agent-card border-2 border-agent-accent rounded-xl p-4 text-center;
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
+  }
+
+  .flow-connector {
+    @apply bg-agent-accent/60;
+  }
+
+  .flow-pulse {
+    animation: flow-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes flow-pulse {
+    0% { opacity: 0.3; }
+    50% { opacity: 1; }
+    100% { opacity: 0.3; }
+  }
+}
