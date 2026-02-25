@@ -13,7 +13,7 @@
     currentModule: number;
   }
 
-  let state: PageState = $state({
+  let pageData: PageState = $state({
     userName: '',
     totalScore: 0,
     badges: [] as typeof allBadges,
@@ -25,7 +25,7 @@
   let showCertificate = $state(false);
 
   courseStore.subscribe((s) => {
-    state = {
+    pageData = {
       userName: s.userName,
       totalScore: s.totalScore,
       badges: s.badges,
@@ -36,24 +36,24 @@
 
   progressPercent.subscribe((p) => { percent = p; });
 
-  const completedCount = $derived(Object.values(state.modules).filter(m => m.completed).length);
+  const completedCount = $derived(Object.values(pageData.modules).filter(m => m.completed).length);
   const maxPossibleScore = $derived(
-    Object.values(state.modules).reduce((sum, m) => sum + m.maxScore, 0)
+    Object.values(pageData.modules).reduce((sum, m) => sum + m.maxScore, 0)
   );
-  const allComplete = $derived(completedCount === 12);
+  const allComplete = $derived(completedCount === 13);
 
   const competencies = [
-    { name: 'Fundamentos de Agentes', icon: '🧬', modules: [1, 2], description: 'Anatomía y tool calling' },
-    { name: 'Ecosistema y Uso', icon: '🌐', modules: [3, 4], description: 'Conocimiento del ecosistema y uso profesional' },
-    { name: 'Construcción', icon: '⚡', modules: [5, 6], description: 'Construir agentes y sistemas de memoria' },
-    { name: 'Orquestación', icon: '🎭', modules: [7, 8], description: 'Frameworks y patrones multi-agente' },
-    { name: 'Producción', icon: '🛡️', modules: [9, 10, 11, 12], description: 'Seguridad, entorno, producción y diseño' }
+    { name: 'Fundamentos de Agentes', icon: '\u{1F9EC}', modules: [1, 2], description: 'Anatomia y tool calling' },
+    { name: 'Context & Uso', icon: '\u{1F310}', modules: [3, 4, 5], description: 'Ecosistema, context engineering y workflow Claude Code' },
+    { name: 'Construccion', icon: '\u26A1', modules: [6, 7], description: 'Construir agentes, memoria y razonamiento' },
+    { name: 'Multi-Agente', icon: '\u{1F3AD}', modules: [8, 9], description: 'Claude Code deep dive y orquestacion multi-agente' },
+    { name: 'Maestria', icon: '\u{1F6E1}\uFE0F', modules: [10, 11, 12, 13], description: 'Seguridad, entorno, produccion y taller final' }
   ];
 
   function getCompetencyScore(moduleIds: number[]): number {
     let total = 0, max = 0;
     for (const id of moduleIds) {
-      const m = state.modules[id];
+      const m = pageData.modules[id];
       if (m) { total += m.score; max += m.maxScore; }
     }
     return max > 0 ? Math.round((total / max) * 100) : 0;
@@ -87,11 +87,11 @@
       <p class="text-xs text-agent-muted uppercase">Módulos</p>
     </div>
     <div class="card text-center">
-      <p class="text-3xl font-black text-agent-accent">{state.totalScore}</p>
+      <p class="text-3xl font-black text-agent-accent">{pageData.totalScore}</p>
       <p class="text-xs text-agent-muted uppercase">Puntos</p>
     </div>
     <div class="card text-center">
-      <p class="text-3xl font-black text-agent-accent">{state.badges.length}</p>
+      <p class="text-3xl font-black text-agent-accent">{pageData.badges.length}</p>
       <p class="text-xs text-agent-muted uppercase">Badges</p>
     </div>
     <div class="card text-center">
@@ -105,7 +105,7 @@
     <h2 class="text-xl font-bold mb-4">Detalle por Módulo</h2>
     <div class="space-y-3">
       {#each modules as mod}
-        {@const progress = state.modules[mod.id]}
+        {@const progress = pageData.modules[mod.id]}
         <div class="flex items-center gap-3">
           <span class="text-xl">{mod.icon}</span>
           <div class="flex-1 min-w-0">
@@ -160,18 +160,22 @@
     <h2 class="text-xl font-bold mb-4">Galería de Badges</h2>
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
       {#each allBadges as badge}
-        {@const earned = state.badges.find(b => b.id === badge.id)}
-        <div class="text-center p-3 rounded-lg {earned ? 'bg-agent-accent/10 border border-agent-accent/30' : 'bg-agent-darker opacity-40'}">
+        {@const earned = pageData.badges.find(b => b.id === badge.id)}
+        {@const isSpecial = badge.id === 'claude-code-master'}
+        <div class="text-center p-3 rounded-lg {earned && isSpecial ? 'bg-yellow-500/10 border-2 border-yellow-500/50 glow-accent' : earned ? 'bg-agent-accent/10 border border-agent-accent/30' : 'bg-agent-darker opacity-40'} {isSpecial ? 'md:col-span-2' : ''}">
           <span class="text-3xl {earned ? '' : 'grayscale'}">{badge.icon}</span>
-          <p class="text-xs font-bold mt-1 {earned ? 'text-agent-accent' : 'text-agent-muted'}">{badge.name}</p>
+          <p class="text-xs font-bold mt-1 {earned && isSpecial ? 'text-yellow-400' : earned ? 'text-agent-accent' : 'text-agent-muted'}">{badge.name}</p>
           <p class="text-xs text-agent-muted mt-0.5">{badge.description}</p>
+          {#if isSpecial && !earned}
+            <p class="text-xs text-yellow-600 mt-1">90%+ en modulos 4, 5 y 8</p>
+          {/if}
         </div>
       {/each}
     </div>
   </div>
 
   <!-- Certificate -->
-  {#if allComplete && state.userName}
+  {#if allComplete && pageData.userName}
     <div class="card mb-8 text-center glow-accent">
       <div class="text-5xl mb-3">🎓</div>
       <h2 class="text-2xl font-black text-agent-accent mb-2">Certificado de Completitud</h2>
@@ -183,11 +187,11 @@
           <p class="text-3xl font-black text-agent-accent mb-2">Agent Mastery</p>
           <p class="text-agent-muted mb-6">De Usuario a Arquitecto de Agentes IA</p>
           <p class="text-sm text-agent-muted mb-1">Otorgado a</p>
-          <p class="text-2xl font-bold text-agent-text mb-4">{state.userName}</p>
+          <p class="text-2xl font-bold text-agent-text mb-4">{pageData.userName}</p>
           <div class="flex justify-center gap-8 text-sm text-agent-muted mb-4">
-            <span>Puntos: {state.totalScore}</span>
-            <span>Badges: {state.badges.length}/10</span>
-            <span>Módulos: 12/12</span>
+            <span>Puntos: {pageData.totalScore}</span>
+            <span>Badges: {pageData.badges.length}/14</span>
+            <span>Modulos: 13/13</span>
           </div>
           <p class="text-xs text-agent-muted">Fecha: {new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
         </div>

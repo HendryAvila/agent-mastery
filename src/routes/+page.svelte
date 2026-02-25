@@ -28,9 +28,9 @@
 
   const blockLabels: Record<number, string> = {
     1: 'BLOQUE 1: FUNDAMENTOS',
-    3: 'BLOQUE 2: EL ECOSISTEMA',
-    5: 'BLOQUE 3: CONSTRUIR',
-    7: 'BLOQUE 4: MULTI-AGENTE',
+    3: 'BLOQUE 2: CONTEXT & USO',
+    6: 'BLOQUE 3: CONSTRUCCIÓN',
+    8: 'BLOQUE 4: MULTI-AGENTE',
     10: 'BLOQUE 5: MAESTRÍA'
   };
 </script>
@@ -79,11 +79,11 @@
       <p class="text-xs text-agent-muted uppercase tracking-wider">Puntos</p>
     </div>
     <div class="card text-center">
-      <p class="text-2xl font-black text-agent-accent">{badges.length}/10</p>
+      <p class="text-2xl font-black text-agent-accent">{badges.length}/14</p>
       <p class="text-xs text-agent-muted uppercase tracking-wider">Badges</p>
     </div>
     <div class="card text-center">
-      <p class="text-2xl font-black text-agent-accent">{Object.values($courseStore.modules).filter(m => m.completed).length}/12</p>
+      <p class="text-2xl font-black text-agent-accent">{Object.values($courseStore.modules).filter(m => m.completed).length}/13</p>
       <p class="text-xs text-agent-muted uppercase tracking-wider">Módulos</p>
     </div>
   </div>

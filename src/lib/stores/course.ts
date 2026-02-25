@@ -18,6 +18,7 @@ export interface Badge {
 }
 
 export interface CourseState {
+  version: number;
   currentModule: number;
   modules: Record<number, ModuleProgress>;
   totalScore: number;
@@ -28,23 +29,29 @@ export interface CourseState {
 }
 
 const STORAGE_KEY = 'agent-mastery-progress';
-const TOTAL_MODULES = 12;
+const TOTAL_MODULES = 13;
+const STORE_VERSION = 2;
 
 export const allBadges: Badge[] = [
-  { id: 'first-step', name: 'Primer Contacto', icon: '\u{1F680}', description: 'Completaste tu primer modulo' },
-  { id: 'agent-anatomy', name: 'Anatomista', icon: '\u{1F9EC}', description: 'Entiendes la anatomia de un agente' },
-  { id: 'tool-master', name: 'Tool Master', icon: '\u{1F527}', description: 'Dominaste tool calling con 80%+' },
-  { id: 'ecosystem-explorer', name: 'Explorador', icon: '\u{1F310}', description: 'Conoces todo el ecosistema 2026' },
-  { id: 'agent-whisperer', name: 'Agent Whisperer', icon: '\u{1F3AF}', description: 'Sabes dirigir agentes como un pro' },
-  { id: 'builder', name: 'Constructor', icon: '\u26A1', description: 'Construiste tu primer agente' },
-  { id: 'brain-architect', name: 'Arquitecto Mental', icon: '\u{1F9E0}', description: 'Dominas memoria y planning' },
-  { id: 'orchestrator', name: 'Orquestador', icon: '\u{1F3AD}', description: 'Dominas los patrones multi-agente' },
-  { id: 'guardian', name: 'Guardian', icon: '\u{1F6E1}\uFE0F', description: 'Experto en seguridad de agentes' },
-  { id: 'agent-architect', name: 'Agent Architect', icon: '\u{1F3C6}', description: 'Completaste el curso completo' },
+  { id: 'agent-anatomy', name: 'Anatomista de Agentes', icon: '\u{1F9EC}', description: 'Entiendes la anatomia de un agente IA' },
+  { id: 'tool-caller', name: 'Maestro de Herramientas', icon: '\u{1F527}', description: 'Dominaste tool calling y MCP' },
+  { id: 'ecosystem-explorer', name: 'Explorador del Ecosistema', icon: '\u{1F310}', description: 'Conoces el ecosistema de agentes 2026' },
+  { id: 'context-engineer', name: 'Ingeniero de Contexto', icon: '\u{1F3AF}', description: 'Dominas context engineering y CLAUDE.md' },
+  { id: 'claude-pro', name: 'Claude Code Pro', icon: '\u{1F4BB}', description: 'Trabajas con Claude Code como un profesional' },
+  { id: 'agent-builder', name: 'Constructor de Agentes', icon: '\u26A1', description: 'Construiste tu propio agente con Agent SDK' },
+  { id: 'memory-architect', name: 'Arquitecto de Memoria', icon: '\u{1F9E0}', description: 'Dominas memoria, planning y razonamiento' },
+  { id: 'deep-diver', name: 'Deep Diver', icon: '\u{1F52C}', description: 'Dominas hooks, skills y sub-agents de Claude Code' },
+  { id: 'orchestrator', name: 'Orquestador Multi-Agente', icon: '\u{1F3AD}', description: 'Dominas frameworks y patrones de orquestacion' },
+  { id: 'guardian', name: 'Guardian de Seguridad', icon: '\u{1F6E1}\uFE0F', description: 'Experto en guardrails, seguridad y evaluacion' },
+  { id: 'workspace-master', name: 'Maestro del Entorno', icon: '\u{1F5A5}\uFE0F', description: 'Configuraste el entorno profesional perfecto' },
+  { id: 'production-ready', name: 'Production Ready', icon: '\u{1F3ED}', description: 'Llevas agentes a produccion con confianza' },
+  { id: 'agent-architect', name: 'Arquitecto de Agentes', icon: '\u{1F3C6}', description: 'Completaste el taller final con excelencia' },
+  { id: 'claude-code-master', name: 'Claude Code Master', icon: '\u{1F451}', description: 'Score 90%+ en Context Engineering, Claude Code Pro y Deep Dive' },
 ];
 
 function getDefaultState(): CourseState {
   return {
+    version: STORE_VERSION,
     currentModule: 1,
     modules: {},
     totalScore: 0,
@@ -61,6 +68,10 @@ function loadState(): CourseState {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      // Version migration: reset if old format or outdated version
+      if (!parsed.version || parsed.version < STORE_VERSION) {
+        return getDefaultState();
+      }
       return { ...getDefaultState(), ...parsed };
     }
   } catch (e) {
@@ -130,6 +141,24 @@ function createCourseStore() {
 
         // Advance current module
         s.currentModule = Math.max(s.currentModule, moduleId + 1);
+
+        // Check for Claude Code Master badge (90%+ on modules 4, 5, 8)
+        const mod4 = s.modules[4];
+        const mod5 = s.modules[5];
+        const mod8 = s.modules[8];
+        if (mod4?.completed && mod5?.completed && mod8?.completed) {
+          const has90_4 = mod4.maxScore > 0 && mod4.score >= mod4.maxScore * 0.9;
+          const has90_5 = mod5.maxScore > 0 && mod5.score >= mod5.maxScore * 0.9;
+          const has90_8 = mod8.maxScore > 0 && mod8.score >= mod8.maxScore * 0.9;
+          if (has90_4 && has90_5 && has90_8) {
+            if (!s.badges.some((b) => b.id === 'claude-code-master')) {
+              const badge = allBadges.find((b) => b.id === 'claude-code-master');
+              if (badge) {
+                s.badges.push({ ...badge, unlockedAt: new Date().toISOString() });
+              }
+            }
+          }
+        }
 
         return { ...s };
       });

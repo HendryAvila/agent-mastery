@@ -1,0 +1,49 @@
+{
+  "id": "deep-claude-code-integration-across-agent-mastery",
+  "type": "enhancement",
+  "size": "large",
+  "description": "Deep Claude Code integration across agent-mastery course",
+  "stages": [
+    {
+      "name": "propose",
+      "status": "completed",
+      "started_at": "2026-02-25T00:18:07Z",
+      "completed_at": "2026-02-25T00:18:52Z"
+    },
+    {
+      "name": "spec",
+      "status": "completed",
+      "started_at": "2026-02-25T00:18:52Z",
+      "completed_at": "2026-02-25T00:21:03Z"
+    },
+    {
+      "name": "clarify",
+      "status": "completed",
+      "started_at": "2026-02-25T00:21:03Z",
+      "completed_at": "2026-02-25T00:23:43Z"
+    },
+    {
+      "name": "design",
+      "status": "completed",
+      "started_at": "2026-02-25T00:23:43Z",
+      "completed_at": "2026-02-25T00:25:33Z"
+    },
+    {
+      "name": "tasks",
+      "status": "completed",
+      "started_at": "2026-02-25T00:25:33Z",
+      "completed_at": "2026-02-25T00:26:48Z"
+    },
+    {
+      "name": "verify",
+      "status": "completed",
+      "started_at": "2026-02-25T00:26:48Z",
+      "completed_at": "2026-02-25T00:27:27Z"
+    }
+  ],
+  "current_stage": "verify",
+  "adrs": [],
+  "status": "completed",
+  "created_at": "2026-02-25T00:18:07Z",
+  "updated_at": "2026-02-25T00:27:27Z"
+}

@@ -20,129 +20,112 @@
 
   courseStore.startModule(MODULE_ID);
 
-  // ─── InteractiveFlow: How Agents Think ───
+  // ─── InteractiveFlow: Agent SDK Architecture ───
   const flowNodes = [
-    { id: 'problem', label: 'Problema', description: 'Un problema complejo llega al agente. Dependiendo de la estrategia de razonamiento elegida, el agente procesara el problema de manera radicalmente diferente. La eleccion de estrategia afecta la calidad, velocidad y costo de la respuesta.', icon: '❓', x: 10, y: 50 },
-    // CoT path (top)
-    { id: 'cot-start', label: 'CoT: Paso 1', description: 'Chain-of-Thought arranca con un razonamiento lineal. El modelo genera el primer paso logico explicito: identifica los datos relevantes del problema y establece que necesita resolver.', icon: '1️⃣', x: 30, y: 15 },
-    { id: 'cot-mid', label: 'CoT: Paso 2', description: 'El razonamiento avanza secuencialmente. Cada paso se construye sobre el anterior. El modelo desarrolla la logica intermedia, aplicando reglas o calculando valores.', icon: '2️⃣', x: 50, y: 15 },
-    { id: 'cot-end', label: 'CoT: Conclusion', description: 'El razonamiento lineal llega a una conclusion. Es directo y eficiente, pero si un paso intermedio es incorrecto, toda la cadena puede llevar a una respuesta erronea. No hay backtracking.', icon: '🎯', x: 70, y: 15 },
-    // ToT path (middle)
-    { id: 'tot-branch', label: 'ToT: Ramificar', description: 'Tree-of-Thought genera multiples caminos de razonamiento en paralelo. En vez de un solo hilo de pensamiento, el modelo explora 2-3 rutas diferentes para resolver el mismo problema.', icon: '🌳', x: 30, y: 50 },
-    { id: 'tot-eval', label: 'ToT: Evaluar', description: 'Cada rama se evalua: cual es mas prometedora? El modelo puede descartar ramas que no llevan a resultados utiles y profundizar en las que si. Permite backtracking: si una rama falla, se prueba otra.', icon: '⚖️', x: 50, y: 50 },
-    { id: 'tot-select', label: 'ToT: Seleccionar', description: 'Se selecciona la rama con el mejor resultado. Mas lento y costoso que CoT, pero significativamente mejor para problemas con multiples soluciones posibles o donde el camino correcto no es obvio.', icon: '✨', x: 70, y: 50 },
-    // ReAct path (bottom)
-    { id: 'react-think', label: 'ReAct: Thought', description: 'El agente primero piensa en voz alta: "Necesito buscar X porque..." Este paso de razonamiento explicito ANTES de actuar mejora drasticamente la precision de las acciones posteriores.', icon: '💭', x: 30, y: 85 },
-    { id: 'react-act', label: 'ReAct: Action', description: 'Basandose en su razonamiento, el agente ejecuta una accion: llama una herramienta, busca informacion, ejecuta codigo. La accion esta justificada por el pensamiento previo.', icon: '⚡', x: 50, y: 85 },
-    { id: 'react-observe', label: 'ReAct: Observe', description: 'El agente observa el resultado de su accion y piensa de nuevo: "El resultado fue X, esto significa que..." y decide si necesita mas acciones o ya tiene la respuesta. El loop Thought-Action-Observation se repite.', icon: '👁️', x: 70, y: 85 },
-    // Final
-    { id: 'answer', label: 'Respuesta', description: 'Todas las estrategias convergen en una respuesta. CoT es rapida y barata pero lineal. ToT es lenta y cara pero explora multiples caminos. ReAct combina razonamiento con acciones reales. La eleccion depende del problema.', icon: '✅', x: 90, y: 50 }
+    { id: 'user', label: 'Request', description: 'Una peticion llega al sistema: puede ser un usuario humano, un webhook, una tarea programada, o incluso otro agente. El request incluye la tarea a resolver y cualquier contexto inicial relevante.', icon: '\u{1F4E8}', x: 8, y: 50 },
+    { id: 'agent', label: 'Agent', description: 'El nodo central del Agent SDK. Un Agent combina tres cosas: el modelo LLM a usar, las instrucciones (system prompt), y las herramientas disponibles. Es la primitiva principal del SDK. Se define con Agent(model, instructions, tools).', icon: '\u{1F916}', x: 22, y: 50 },
+    { id: 'gather', label: 'Gather Context', description: 'Fase 1 del ciclo: el agente lee archivos, busca codigo, consulta documentacion, revisa el estado del sistema. El objetivo es ENTENDER el problema antes de actuar. Un agente que actua sin contexto comete errores evitables.', icon: '\u{1F50D}', x: 38, y: 25 },
+    { id: 'action', label: 'Take Action', description: 'Fase 2: el agente ejecuta herramientas para realizar cambios. Cada Tool es una funcion externa con nombre, descripcion y JSON Schema de parametros. El LLM genera la llamada; el SDK ejecuta la funcion real y devuelve el resultado.', icon: '\u26A1', x: 55, y: 25 },
+    { id: 'verify', label: 'Verify', description: 'Fase 3: el agente verifica que su accion fue correcta. Corre tests, revisa output, valida que no rompio nada. Esta fase es lo que separa un agente profesional de uno que "escribe codigo y reza". Sin verificacion, los errores se acumulan.', icon: '\u2705', x: 72, y: 25 },
+    { id: 'iterate', label: 'Iterate', description: 'Fase 4: si la verificacion falla, el agente vuelve a Gather Context con nueva informacion (el error). Este loop feedback es el corazon del Agent SDK. Continua hasta que la verificacion pasa o se alcanza un limite de iteraciones.', icon: '\u{1F504}', x: 55, y: 70 },
+    { id: 'handoff', label: 'Handoff', description: 'Primitiva del SDK que permite transferir control a otro agente especializado. El agente actual pasa contexto relevante (no todo el historial) al agente destino. Ejemplo: un agente de triage transfiere a un agente de debugging.', icon: '\u{1F91D}', x: 38, y: 75 },
+    { id: 'guardrail', label: 'Guardrail', description: 'Primitiva de validacion que se ejecuta en paralelo con el agente. Verifica inputs (prompt injection?) y outputs (datos sensibles? formato correcto?). Si un guardrail falla, puede bloquear la accion ANTES de que se ejecute.', icon: '\u{1F6E1}\uFE0F', x: 22, y: 25 },
+    { id: 'result', label: 'Resultado', description: 'El agente completo su tarea: la verificacion paso, no quedan acciones pendientes. Se devuelve el resultado al solicitante. El SDK registra metricas: tokens usados, herramientas invocadas, iteraciones del loop, tiempo total.', icon: '\u{1F3C1}', x: 92, y: 50 }
   ];
 
   const flowEdges = [
-    { from: 'problem', to: 'cot-start', label: 'CoT' },
-    { from: 'problem', to: 'tot-branch', label: 'ToT' },
-    { from: 'problem', to: 'react-think', label: 'ReAct' },
-    { from: 'cot-start', to: 'cot-mid' },
-    { from: 'cot-mid', to: 'cot-end' },
-    { from: 'cot-end', to: 'answer' },
-    { from: 'tot-branch', to: 'tot-eval' },
-    { from: 'tot-eval', to: 'tot-select' },
-    { from: 'tot-select', to: 'answer' },
-    { from: 'react-think', to: 'react-act' },
-    { from: 'react-act', to: 'react-observe' },
-    { from: 'react-observe', to: 'react-think', label: 'Loop' },
-    { from: 'react-observe', to: 'answer' }
+    { from: 'user', to: 'agent', label: 'Tarea' },
+    { from: 'agent', to: 'gather', label: 'Fase 1' },
+    { from: 'agent', to: 'guardrail', label: 'Validar' },
+    { from: 'guardrail', to: 'gather' },
+    { from: 'gather', to: 'action', label: 'Fase 2' },
+    { from: 'action', to: 'verify', label: 'Fase 3' },
+    { from: 'verify', to: 'result', label: 'OK' },
+    { from: 'verify', to: 'iterate', label: 'Fallo' },
+    { from: 'iterate', to: 'gather', label: 'Retry' },
+    { from: 'iterate', to: 'handoff', label: 'Delegar' },
+    { from: 'handoff', to: 'agent', label: 'Otro agente' }
   ];
 
   const flowChallenges = [
-    { question: 'Cual estrategia permite al agente DESCARTAR un camino de razonamiento y probar otro?', targetNodeId: 'tot-eval', hint: 'Una de las estrategias evalua multiples ramas y permite backtracking.' },
-    { question: 'En ReAct, que paso ocurre ANTES de ejecutar cualquier accion?', targetNodeId: 'react-think', hint: 'El agente primero razona sobre que hacer y por que.' },
-    { question: 'Que nodo representa el cuello de botella de Chain-of-Thought: si falla, TODO falla?', targetNodeId: 'cot-mid', hint: 'En una cadena lineal, cada paso depende del anterior.' },
-    { question: 'Donde convergen las tres estrategias?', targetNodeId: 'answer', hint: 'Todas las rutas llevan al mismo destino final.' }
+    { question: 'Que primitiva del Agent SDK permite que un agente transfiera control a otro agente especializado?', targetNodeId: 'handoff', hint: 'Es el mecanismo de delegacion entre agentes, pasa contexto relevante al destino.' },
+    { question: 'Que fase del ciclo determina si el agente debe seguir iterando o devolver el resultado?', targetNodeId: 'verify', hint: 'Es la fase que corre tests y valida la salida antes de considerar la tarea completa.' },
+    { question: 'Que componente valida inputs y outputs en paralelo con el agente para bloquear acciones peligrosas?', targetNodeId: 'guardrail', hint: 'Funciona como un sistema de seguridad que intercepta antes de ejecutar.' },
+    { question: 'A donde vuelve el agente cuando la verificacion falla y necesita mas informacion?', targetNodeId: 'gather', hint: 'Es la primera fase del ciclo, donde el agente lee y entiende el problema.' }
   ];
 
   // ─── Quiz ───
   const quizQuestions = [
     {
-      question: 'Un agente necesita recordar las preferencias del usuario entre sesiones (tema oscuro, idioma, frameworks favoritos). Que tipo de memoria y que tecnologia usarias?',
+      question: 'El Claude Agent SDK tiene 4 primitivas fundamentales. Si necesitas que un agente de triage transfiera un bug report a un agente de debugging especializado, cual primitiva usas?',
       options: [
-        { text: 'Memoria corta (context window) - simplemente mantener las preferencias en el historial', correct: false, explanation: 'La memoria corta vive solo en el context window de una sesion. Cuando la sesion termina o el contexto se comprime, las preferencias se pierden. No es persistente.' },
-        { text: 'Memoria larga en vector database (Pinecone, Weaviate) con embeddings de preferencias', correct: false, explanation: 'Vector databases son excelentes para busqueda semantica, pero las preferencias del usuario son datos estructurados simples (key-value). Usar embeddings aca es matar moscas con un canon.' },
-        { text: 'Memoria larga en key-value store (Redis, archivo JSON) para datos estructurados de preferencias', correct: true, explanation: 'Correcto! Las preferencias son datos estructurados simples. Un key-value store es rapido, eficiente, y permite lectura/escritura directa sin necesidad de embeddings. Se carga al inicio de cada sesion en el system prompt o como contexto adicional.' },
-        { text: 'Memoria episodica - guardar cada conversacion completa del usuario', correct: false, explanation: 'Guardar conversaciones enteras es excesivo para preferencias. La memoria episodica es util para recordar experiencias pasadas, no para datos de configuracion.' }
-      ]
-    },
-    {
-      question: 'Cuando es Tree-of-Thought PEOR que Chain-of-Thought?',
-      options: [
-        { text: 'Nunca, ToT siempre es superior porque explora mas opciones', correct: false, explanation: 'Falso. ToT genera multiples caminos lo que consume MUCHO mas tokens y tiempo. Para problemas simples, es desperdicio de recursos.' },
-        { text: 'Cuando el problema es straightforward y tiene una solucion obvia - ToT anade latencia y costo innecesarios', correct: true, explanation: 'Correcto! Si el problema tiene una solucion clara y lineal (ej: "convierte Celsius a Fahrenheit"), generar 3 ramas de razonamiento paralelas es desperdicio. CoT resuelve en un paso. ToT brilla en problemas ambiguos con multiples caminos posibles (ej: disenar una arquitectura).' },
-        { text: 'Cuando el LLM tiene un context window pequeno', correct: false, explanation: 'Si bien ToT consume mas tokens, el context window no es la razon principal por la que es peor. El problema es la relacion costo/beneficio para problemas simples.' },
-        { text: 'Cuando se usan herramientas externas', correct: false, explanation: 'ToT puede funcionar perfectamente con herramientas. De hecho, ReAct (que usa herramientas) puede beneficiarse de explorar multiples caminos de accion.' }
+        { text: 'Tool: defines una herramienta que ejecuta el agente de debugging', correct: false, explanation: 'Un Tool ejecuta una funcion externa y devuelve un resultado. No transfiere control ni contexto conversacional a otro agente. El agente de triage seguiria activo.' },
+        { text: 'Handoff: transfiere control y contexto relevante al agente de debugging', correct: true, explanation: 'Correcto! Handoff es la primitiva de delegacion del Agent SDK. Transfiere el control al agente destino pasando contexto relevante (no todo el historial). El agente de triage "sale de escena" y el de debugging toma el mando.' },
+        { text: 'Guardrail: valida que el bug report sea legitimo antes de procesarlo', correct: false, explanation: 'Los Guardrails validan inputs/outputs pero no transfieren control entre agentes. Son un mecanismo de seguridad, no de delegacion.' },
+        { text: 'Agent: creas un nuevo Agent con las instrucciones del debugger', correct: false, explanation: 'Crear un Agent define su configuracion (modelo, tools, instrucciones), pero no maneja la transferencia de control ni el paso de contexto desde otro agente. Necesitas Handoff para eso.' }
       ],
-      source: 'Chain-of-Thought Prompting (Wei et al. 2022)',
-      sourceUrl: 'https://arxiv.org/abs/2201.11903'
+      source: 'Anthropic - Building Agents with Claude Agent SDK',
+      sourceUrl: 'https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk'
     },
     {
-      question: 'Un agente usando ReAct hace 3 observaciones pero llega a una conclusion incorrecta. Cual es el problema MAS probable?',
+      question: 'Observa este agentic loop. Cual es el problema CRITICO?',
+      codeBlock: `while True:
+    response = llm.generate(messages, tools)
+    messages.append(response.message)
+    if response.tool_call:
+        result = execute_tool(response.tool_call)
+        messages.append(tool_result(result))
+    else:
+        return response.text`,
       options: [
-        { text: 'Las herramientas retornaron datos correctos pero el agente interpreto mal las observaciones en su paso de Thought', correct: true, explanation: 'Correcto! El punto debil de ReAct es la fase de Thought (razonamiento). Si las observaciones son correctas pero el razonamiento sobre ellas es incorrecto, el agente llega a conclusiones erroneas. Es un problema de RAZONAMIENTO, no de DATOS. Se mitiga con prompts mas especificos y extended thinking.' },
-        { text: 'Las 3 herramientas fallaron silenciosamente y retornaron datos corruptos', correct: false, explanation: 'Posible pero improbable que las 3 fallen. Ademas, con buen error handling, las fallas se detectan. El problema mas comun es el razonamiento, no los datos.' },
-        { text: 'El context window se lleno y el agente perdio las primeras observaciones', correct: false, explanation: 'Con solo 3 observaciones, es casi imposible llenar el context window. Este problema ocurre con decenas de iteraciones, no tres.' },
-        { text: 'ReAct no funciona bien con mas de 2 observaciones', correct: false, explanation: 'ReAct puede manejar muchas observaciones. No hay un limite magico en 2. El patron esta disenado para loops extensos.' }
+        { text: 'Falta un limite de iteraciones (max_iterations) y un presupuesto de tokens para evitar loops infinitos y costos descontrolados', correct: true, explanation: 'Correcto! Un while True sin stop conditions es una bomba de tiempo. Si el agente entra en un loop donde siempre hace tool_calls (ej: busca un archivo que no existe y reintenta eternamente), consumira tokens infinitamente. Siempre necesitas: max_iterations, token_budget, y/o timeout.' },
+        { text: 'Falta agregar la respuesta del asistente al historial', correct: false, explanation: 'El codigo SI agrega la respuesta: messages.append(response.message) esta en la linea 3.' },
+        { text: 'Falta validar los parametros del tool_call contra el JSON Schema', correct: false, explanation: 'La validacion de parametros es buena practica, pero no es el problema CRITICO. Sin ella el agente puede tener errores; sin stop conditions puede gastar miles de dolares.' },
+        { text: 'El else deberia lanzar una excepcion en vez de retornar', correct: false, explanation: 'Retornar el texto cuando no hay tool_calls es el comportamiento correcto. Es la stop condition natural del loop.' }
+      ]
+    },
+    {
+      question: 'Estas construyendo un MCP server que expone una herramienta de busqueda. Cual es el elemento MAS importante de la definicion del tool?',
+      options: [
+        { text: 'El nombre: debe ser corto y tecnico para ahorrar tokens', correct: false, explanation: 'Un nombre corto y críptico como "s" o "qry" no le dice al LLM cuando usar la herramienta ni que hace. Los tokens ahorrados en el nombre causan errores de seleccion que cuestan mucho mas.' },
+        { text: 'La descripcion: debe explicar que hace, cuando usarla, que retorna, y cuando NO usarla', correct: true, explanation: 'Correcto! Anthropic llama a esto "prompt engineering your tools". La descripcion es lo que el LLM lee para decidir si usar la herramienta. Debe incluir: que hace, cuando es apropiada, que formato tiene la respuesta, y edge cases. Una buena descripcion reduce errores dramaticamente.' },
+        { text: 'El input schema: debe tener tipos estrictos con validaciones complejas', correct: false, explanation: 'El input schema es importante para validar parametros, pero sin una buena descripcion el LLM ni siquiera sabra cuando usar la herramienta o que parametros pasar. La descripcion es mas critica.' },
+        { text: 'El handler: debe ser extremadamente rapido para minimizar latencia', correct: false, explanation: 'La velocidad del handler importa, pero si la definicion es mala, el LLM llamara la herramienta equivocada o con parametros incorrectos. De nada sirve un handler rapido si nunca se invoca correctamente.' }
       ],
-      source: 'ReAct: Synergizing Reasoning and Acting (Yao et al. 2022)',
-      sourceUrl: 'https://arxiv.org/abs/2210.03629'
+      source: 'Anthropic - Writing Effective Tools for Agents',
+      sourceUrl: 'https://www.anthropic.com/engineering/writing-tools-for-agents'
     },
     {
-      question: 'Por que extended thinking mejora la calidad pero puede ser problematico en produccion?',
+      question: 'Hoofy usa un Bridge Pattern para separar el protocolo MCP de la logica de negocio. Cual es la ventaja PRINCIPAL de este patron?',
       options: [
-        { text: 'Porque los thinking blocks son visibles para el usuario y pueden revelar informacion sensible', correct: false, explanation: 'Los thinking blocks pueden ocultarse al usuario. El problema no es la visibilidad sino el impacto en rendimiento y costos.' },
-        { text: 'Porque anade latencia significativa (segundos a minutos) y consume muchos mas tokens, aumentando tanto el tiempo de respuesta como el costo por peticion', correct: true, explanation: 'Correcto! Extended thinking puede generar miles de tokens de razonamiento interno antes de responder. En produccion, esto significa: 3-10x mas latencia, 3-10x mas tokens facturados, y usuarios esperando mucho mas. Se debe usar selectivamente para tareas que realmente lo necesitan, no para todo.' },
-        { text: 'Porque solo funciona con Claude y no es portable a otros modelos', correct: false, explanation: 'Aunque la implementacion especifica varia, otros modelos tienen capacidades similares (reasoning de OpenAI, etc). El problema real es practico, no de portabilidad.' },
-        { text: 'Porque el thinking no es determinista y puede dar resultados diferentes cada vez', correct: false, explanation: 'La no-determinismo existe con o sin extended thinking. Todos los LLMs son estocasticos por defecto (a menos que uses temperature=0).' }
+        { text: 'Permite ejecutar el servidor mas rapido porque hay menos capas', correct: false, explanation: 'El Bridge Pattern anade una capa de abstraccion, no las reduce. Su ventaja no es rendimiento sino mantenibilidad y testabilidad.' },
+        { text: 'Puedes testear la logica de negocio sin necesitar un cliente MCP, y cambiar el protocolo sin tocar el dominio', correct: true, explanation: 'Correcto! El Bridge separa "como llegan las peticiones" (MCP, HTTP, CLI) de "que hacen" (guardar observacion, buscar memoria, crear pipeline). Puedes testear toda la logica de negocio con unit tests simples, sin montar un servidor MCP. Y si manana cambias de protocolo, la logica no se toca.' },
+        { text: 'Reduce la cantidad de codigo porque todo esta en un solo archivo', correct: false, explanation: 'Al contrario, el Bridge Pattern distribuye el codigo en multiples capas. La ventaja es la separacion de responsabilidades, no la reduccion de codigo.' },
+        { text: 'Es el unico patron que funciona con MCP', correct: false, explanation: 'MCP funciona con cualquier arquitectura. El Bridge es una decision de diseno, no un requisito del protocolo.' }
       ]
     },
     {
-      question: 'Estas disenando un sistema de memoria para un agente de soporte tecnico. Cual combinacion de memorias es la MAS efectiva?',
+      question: 'Un colega quiere construir un bot de Slack que responda preguntas sobre la codebase usando Claude. Que herramienta le recomiendas?',
       options: [
-        { text: 'Solo memoria corta (context window) - suficiente para resolver tickets', correct: false, explanation: 'La memoria corta no persiste entre sesiones. Si el mismo usuario vuelve con un problema recurrente, el agente no recordara la solucion anterior.' },
-        { text: 'Corta (context de sesion) + Larga (vector DB con documentacion) + Episodica (tickets resueltos similares)', correct: true, explanation: 'Correcto! La combinacion ideal: memoria corta para la conversacion actual, memoria larga con la documentacion del producto (RAG con vector DB), y memoria episodica con tickets resueltos para encontrar soluciones a problemas similares. Las tres capas se complementan.' },
-        { text: 'Solo memoria larga (guardar todo en vector DB) - buscar todo por similitud', correct: false, explanation: 'Una sola capa de memoria no es suficiente. La conversacion actual necesita estar en contexto directo, no buscada por similitud. Y las experiencias pasadas se buscan diferente que la documentacion.' },
-        { text: 'Corta + Episodica sin documentacion', correct: false, explanation: 'Sin acceso a la documentacion del producto, el agente no puede responder preguntas tecnicas que no haya visto antes. La documentacion como memoria larga es esencial para un agente de soporte.' }
-      ]
-    },
-    {
-      question: 'Observa este patron ReAct. Cual es el paso que FALTA?',
-      codeBlock: `Thought: Necesito encontrar el archivo que causa el error de importacion.
-Action: search_codebase("import UserModel")
-Observation: Encontrado en 3 archivos: user.py, admin.py, tests.py
-[???]
-Action: read_file("user.py")`,
-      options: [
-        { text: 'Falta un Thought que analice la observacion y decida el siguiente paso', correct: true, explanation: 'Correcto! El patron ReAct es estricto: Thought -> Action -> Observation -> THOUGHT -> Action. Despues de cada observacion, el agente DEBE razonar sobre lo que vio: "El import esta en 3 archivos. Voy a leer user.py primero porque es probablemente la definicion original." Sin este paso, las acciones son aleatorias.' },
-        { text: 'Falta validar que los 3 archivos existen', correct: false, explanation: 'La validacion de existencia es responsabilidad de la herramienta, no del patron ReAct. Lo que falta es el razonamiento intermedio.' },
-        { text: 'Falta un output/log del proceso', correct: false, explanation: 'El logging es buena practica pero no es parte del patron ReAct. Lo que falta es un Thought entre la Observation y la siguiente Action.' },
-        { text: 'No falta nada, el agente puede actuar inmediatamente despues de una observacion', correct: false, explanation: 'Actuar sin razonar es exactamente lo que ReAct busca evitar. El Thought intermedio es lo que da nombre al patron: REason + ACT.' }
+        { text: 'Claude Code directo: ya tiene todas las herramientas para leer codigo y responder', correct: false, explanation: 'Claude Code es un agente interactivo de terminal/IDE. No esta disenado para ser embebido en un bot de Slack. No tiene API para integracion con servicios de mensajeria.' },
+        { text: 'Un MCP server que le de a Claude Code acceso a Slack', correct: false, explanation: 'Un MCP server amplía las herramientas de Claude Code, pero el problema no es darle acceso a Slack sino construir un producto que VIVA en Slack. Claude Code sigue siendo un agente de terminal.' },
+        { text: 'Claude Agent SDK: construye un agente custom con tools de busqueda de codigo y la API de Slack como interfaz', correct: true, explanation: 'Correcto! El Agent SDK es para construir PRODUCTOS que embeben agentes. Defines un Agent con tools de busqueda de codigo (grep, read_file), lo conectas a la API de Slack como interfaz, y tienes un bot custom. El SDK da control total sobre el loop, las tools, y la integracion.' },
+        { text: 'La API de Claude directa sin ningun SDK: es mas simple', correct: false, explanation: 'La API directa requiere que implementes el agentic loop manualmente: iteraciones, tool execution, error handling, stop conditions. El Agent SDK ya resuelve todo esto. Usarlo es mas simple, no mas complejo.' }
       ]
     }
   ];
 
   function handleFlowComplete(score: number, total: number) {
-    // Flow does not trigger badge
+    // Flow does not trigger badge, just tracks engagement
   }
 
   function handleQuizComplete(score: number, total: number) {
     courseStore.completeModule(MODULE_ID, score, total);
     completed = true;
-    // Badge: brain-architect on 80%+ score
-    if (score >= total * 0.8) {
-      const badge = courseStore.unlockBadge('brain-architect');
-      if (badge) {
-        earnedBadge = badge;
-        showBadge = true;
-      }
+    const badge = courseStore.unlockBadge('agent-builder');
+    if (badge) {
+      earnedBadge = badge;
+      showBadge = true;
     }
   }
 </script>
@@ -181,684 +164,819 @@ Action: read_file("user.py")`,
     </ul>
   </div>
 
-  <!-- Section 1: Tipos de Memoria -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Section 1: El Ciclo de 4 Fases del Agente          -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">1. Tipos de Memoria</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">1. El Ciclo de 4 Fases del Agente</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Los humanos tenemos multiples sistemas de memoria. Los agentes tambien necesitan diferentes tipos para funcionar efectivamente. <strong class="text-agent-text">No existe "una sola memoria"</strong> — cada tipo cumple un proposito distinto, y la combinacion inteligente de los tres es lo que separa a un agente basico de uno profesional.
+      En el modulo anterior vimos el agentic loop basico: recibir input, llamar al LLM, ejecutar tools, repetir. Pero Anthropic, al construir el Claude Agent SDK, descubrio que los agentes efectivos siguen un patron mas especifico con <strong class="text-agent-text">4 fases claramente diferenciadas</strong>. Este ciclo es la base de todo agente bien construido.
     </p>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
       <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-5">
-        <p class="text-2xl mb-2">&#x1F9E0;</p>
-        <p class="text-agent-accent font-bold">Memoria Corta</p>
-        <p class="text-sm text-agent-muted mt-2">El context window de la conversacion actual. Todo lo que el agente "ve" en este momento: mensajes, tool results, instrucciones.</p>
-        <p class="text-xs text-agent-text mt-3 font-mono bg-agent-dark rounded px-2 py-1">Analogia: tu RAM</p>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F50D;</span>
+          <p class="text-agent-accent font-bold">Fase 1: Gather Context</p>
+        </div>
+        <p class="text-sm text-agent-muted">Lee archivos, busca codigo, consulta documentacion. El agente necesita <strong class="text-agent-text">entender el problema</strong> antes de actuar. Si actua sin contexto, comete errores costosos que despues tiene que deshacer.</p>
+        <p class="text-xs text-agent-text mt-3 font-mono bg-agent-dark rounded px-2 py-1">Analogia: un cirujano lee el expediente ANTES de operar</p>
       </div>
       <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-5">
-        <p class="text-2xl mb-2">&#x1F4BE;</p>
-        <p class="text-agent-accent font-bold">Memoria Larga</p>
-        <p class="text-sm text-agent-muted mt-2">Almacenamiento persistente: vector databases, archivos de configuracion, bases de datos. Sobrevive entre sesiones y se consulta bajo demanda.</p>
-        <p class="text-xs text-agent-text mt-3 font-mono bg-agent-dark rounded px-2 py-1">Analogia: tu disco duro</p>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x26A1;</span>
+          <p class="text-agent-accent font-bold">Fase 2: Take Action</p>
+        </div>
+        <p class="text-sm text-agent-muted">Ejecuta herramientas para realizar cambios: edita archivos, ejecuta comandos, crea recursos. Cada accion esta <strong class="text-agent-text">informada por el contexto</strong> recopilado en la fase anterior.</p>
+        <p class="text-xs text-agent-text mt-3 font-mono bg-agent-dark rounded px-2 py-1">Analogia: el cirujano opera con plan claro</p>
       </div>
       <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-5">
-        <p class="text-2xl mb-2">&#x1F4F8;</p>
-        <p class="text-agent-accent font-bold">Memoria Episodica</p>
-        <p class="text-sm text-agent-muted mt-2">Registro de experiencias pasadas: que tareas resolvio, que estrategias uso, que errores cometio. Permite aprender de la propia experiencia.</p>
-        <p class="text-xs text-agent-text mt-3 font-mono bg-agent-dark rounded px-2 py-1">Analogia: tus recuerdos</p>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x2705;</span>
+          <p class="text-agent-accent font-bold">Fase 3: Verify</p>
+        </div>
+        <p class="text-sm text-agent-muted">Corre tests, revisa output, valida resultados. Esta fase es lo que separa agentes profesionales de agentes "escribe y reza". <strong class="text-agent-text">Sin verificacion, los errores se acumulan</strong> silenciosamente.</p>
+        <p class="text-xs text-agent-text mt-3 font-mono bg-agent-dark rounded px-2 py-1">Analogia: el cirujano verifica signos vitales</p>
+      </div>
+      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F504;</span>
+          <p class="text-agent-accent font-bold">Fase 4: Iterate</p>
+        </div>
+        <p class="text-sm text-agent-muted">Si la verificacion falla, el agente <strong class="text-agent-text">vuelve a Gather Context</strong> con nueva informacion (el error, el test fallido). Este loop de feedback es lo que hace que el agente se autocorrija.</p>
+        <p class="text-xs text-agent-text mt-3 font-mono bg-agent-dark rounded px-2 py-1">Analogia: ajusta la estrategia con datos nuevos</p>
       </div>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Deep dive: Memoria Corta (Context Window)</h3>
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">La fase mas descuidada es <strong class="text-agent-text">Verify</strong>. Muchos desarrolladores construyen agentes que generan codigo pero nunca lo testean. El resultado: errores que se propagan. Anthropic descubrio que forzar la verificacion despues de cada accion mejora drasticamente la calidad del output. Es la diferencia entre "funciona a veces" y "funciona consistentemente".</p>
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Este ciclo de 4 fases no es exclusivo del Agent SDK. Claude Code lo implementa internamente: cuando le pides "arregla este bug", primero lee archivos (Gather), luego edita codigo (Action), despues corre tests (Verify), y si fallan, analiza el error y reintenta (Iterate). La diferencia con el Agent SDK es que tu <strong class="text-agent-text">controlas explicitamente cada fase</strong>.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
+      <p class="text-sm text-agent-muted">Segun Anthropic, los agentes que incluyen la fase de verificacion resuelven tareas de codigo con <strong class="text-agent-text">significativamente menos errores acumulados</strong> que los que actuan sin verificar. El patron "actua, verifica, corrige" es tan efectivo que esta integrado como comportamiento por defecto en Claude Code: despues de editar un archivo, el agente automaticamente corre linting y tests si estan configurados.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">El ciclo visualizado</h3>
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Las 4 fases en un bug fix real</p>
+      {@html `<pre class="code-block text-xs">
+## Tarea: "Arregla el error de autenticacion en /api/login"
+
+GATHER CONTEXT:
+  ├── read_file("src/auth/login.py")          # Leer el codigo actual
+  ├── read_file("tests/test_auth.py")          # Leer los tests existentes
+  ├── search_code("JWT", "src/")               # Buscar donde se genera el JWT
+  └── read_file("src/config/settings.py")      # Revisar configuracion de auth
+
+TAKE ACTION:
+  ├── edit_file("src/auth/login.py", ...)      # Corregir la validacion del token
+  └── edit_file("src/auth/middleware.py", ...)  # Actualizar el middleware
+
+VERIFY:
+  ├── run_tests("tests/test_auth.py")          # Correr tests de auth
+  └── run_linter("src/auth/")                  # Verificar codigo limpio
+
+ITERATE (si test fallo):
+  ├── read_file(test_output)                   # Leer QUE fallo
+  ├── gather_context(error_trace)              # Entender POR QUE fallo
+  └── → volver a TAKE ACTION con nueva info    # Corregir y reintentar</pre>`}
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Section 2: Claude Agent SDK                         -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">2. Claude Agent SDK</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El Claude Agent SDK es el kit oficial de Anthropic para construir agentes programaticos. Si Claude Code es un agente <strong class="text-agent-text">listo para usar</strong>, el Agent SDK es el conjunto de piezas para <strong class="text-agent-text">construir tu propio agente</strong>. Disponible en Python y TypeScript, se estructura alrededor de 4 primitivas.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="bg-agent-card border border-agent-border rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F916;</span>
+          <p class="text-agent-accent font-bold text-sm">Agent</p>
+        </div>
+        <p class="text-sm text-agent-muted">La primitiva central. Combina un modelo LLM, instrucciones (system prompt), y herramientas disponibles. Un Agent es la unidad minima que puede razonar y actuar.</p>
+        {@html `<pre class="code-block text-xs mt-3">agent = Agent(
+    model="claude-sonnet-4-20250514",
+    instructions="Eres un code reviewer...",
+    tools=[search_code, read_file, write_review]
+)</pre>`}
+      </div>
+      <div class="bg-agent-card border border-agent-border rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F527;</span>
+          <p class="text-agent-accent font-bold text-sm">Tool</p>
+        </div>
+        <p class="text-sm text-agent-muted">Una funcion externa que el agente puede invocar. Tiene nombre, descripcion (que el LLM lee para decidir cuando usarla), y un handler que ejecuta la logica real.</p>
+        {@html `<pre class="code-block text-xs mt-3">@tool
+def search_code(query: str, path: str) -> str:
+    """Busca texto en el codigo fuente.
+    Retorna matches con archivo y linea."""
+    return grep(query, path)</pre>`}
+      </div>
+      <div class="bg-agent-card border border-agent-border rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F91D;</span>
+          <p class="text-agent-accent font-bold text-sm">Handoff</p>
+        </div>
+        <p class="text-sm text-agent-muted">Transfiere control de un agente a otro, pasando contexto relevante. Permite construir sistemas multi-agente donde cada agente se especializa en un dominio.</p>
+        {@html `<pre class="code-block text-xs mt-3">triage = Agent(
+    tools=[handoff_to_debugger,
+           handoff_to_reviewer]
+)
+# El agente de triage decide A QUIEN
+# delegar segun el tipo de tarea</pre>`}
+      </div>
+      <div class="bg-agent-card border border-agent-border rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F6E1;&#xFE0F;</span>
+          <p class="text-agent-accent font-bold text-sm">Guardrail</p>
+        </div>
+        <p class="text-sm text-agent-muted">Validacion que se ejecuta en paralelo con el agente. Verifica inputs (prompt injection?) y outputs (datos sensibles?). Si falla, bloquea la accion.</p>
+        {@html `<pre class="code-block text-xs mt-3">@guardrail
+def check_no_secrets(output: str) -> bool:
+    """Bloquea respuestas que contengan
+    tokens, passwords o API keys."""
+    patterns = [r"sk-[a-z0-9]+", ...]
+    return not any(re.search(p, output))</pre>`}
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Creando tu primer agente con el SDK</h3>
     <p class="text-agent-muted leading-relaxed mb-3">
-      La memoria corta es simplemente el context window de la llamada actual al LLM. Incluye el system prompt, el historial de mensajes, y los tool results. Es <strong class="text-agent-text">volatil</strong>: cuando la sesion termina, desaparece. Su principal limitacion es el tamaño y el costo.
+      Con estas 4 primitivas, puedes construir un agente completo en sorprendentemente pocas lineas. Veamos el esqueleto basico:
     </p>
     <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Implementacion: Sliding Window con prioridad</p>
-      {@html `<pre class="code-block text-xs">def manage_short_term_memory(messages, max_tokens=100000):
-    """Gestiona el context window priorizando mensajes recientes."""
-    # System prompt SIEMPRE se mantiene (es la "personalidad")
-    system = [m for m in messages if m["role"] == "system"]
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Agente con Agent SDK (pseudocodigo Python)</p>
+      {@html `<pre class="code-block text-agent-highlight text-sm">from agent_sdk import Agent, Tool, Guardrail, Runner
 
-    # Los ultimos N mensajes tienen prioridad
-    recent = messages[-20:]  # Ultimos 20 mensajes siempre
+# 1. Definir herramientas
+@Tool
+def read_file(path: str) -> str:
+    """Lee un archivo del proyecto. Retorna el contenido completo.
+    Usar para entender codigo existente antes de hacer cambios."""
+    with open(path) as f:
+        return f.read()
 
-    # Mensajes antiguos: solo si hay espacio
-    old = messages[len(system):-20]
-    available = max_tokens - count_tokens(system + recent)
+@Tool
+def run_tests(test_path: str) -> str:
+    """Ejecuta tests con pytest. Retorna output con pass/fail.
+    Usar despues de hacer cambios para verificar que no rompiste nada."""
+    return subprocess.run(["pytest", test_path], capture_output=True)
 
-    kept_old = []
-    for msg in reversed(old):
-        if count_tokens([msg]) <= available:
-            kept_old.insert(0, msg)
-            available -= count_tokens([msg])
-        else:
-            break
+# 2. Definir guardrails
+@Guardrail
+def no_production_writes(tool_call):
+    """Bloquea escrituras a archivos en /prod/"""
+    if tool_call.name == "write_file" and "/prod/" in tool_call.args["path"]:
+        return {"blocked": True, "reason": "No se permite escribir en /prod/"}
 
-    return system + kept_old + recent</pre>`}
+# 3. Crear el agente
+agent = Agent(
+    model="claude-sonnet-4-20250514",
+    instructions="""Eres un agente de debugging. Sigue este ciclo:
+    1. GATHER: Lee el archivo con el error y los tests relacionados
+    2. ACTION: Corrige el bug
+    3. VERIFY: Corre los tests
+    4. ITERATE: Si fallan, analiza por que y reintenta""",
+    tools=[read_file, write_file, run_tests, search_code],
+    guardrails=[no_production_writes]
+)
+
+# 4. Ejecutar
+result = Runner.run(agent, "Arregla el bug en src/auth/login.py")</pre>`}
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Deep dive: Memoria Larga (Persistente)</h3>
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Muchos desarrolladores definen herramientas con descripciones vagas como <code class="text-agent-accent text-xs">@Tool def search(q)</code> sin explicar que busca, donde busca, ni que retorna. El LLM <strong class="text-agent-text">lee la descripcion para decidir cuando usarla</strong>. Una descripcion pobre genera llamadas incorrectas. Siempre incluye: que hace, cuando usarla, y que formato tiene la respuesta.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Agent SDK vs OpenAI Agents SDK</h3>
     <p class="text-agent-muted leading-relaxed mb-3">
-      La memoria larga vive fuera del context window y persiste entre sesiones. Hay dos enfoques principales dependiendo del tipo de datos:
+      Ambos SDKs siguen un modelo similar, lo que refleja una convergencia en la industria sobre como estructurar agentes:
+    </p>
+    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-agent-border">
+              <th class="text-left text-agent-text py-2 pr-4">Concepto</th>
+              <th class="text-left text-agent-text py-2 pr-4">Claude Agent SDK</th>
+              <th class="text-left text-agent-text py-2">OpenAI Agents SDK</th>
+            </tr>
+          </thead>
+          <tbody class="text-agent-muted">
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Agente</td><td class="py-2 pr-4">Agent(model, instructions, tools)</td><td class="py-2">Agent(model, instructions, tools)</td></tr>
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Herramientas</td><td class="py-2 pr-4">@Tool decorator</td><td class="py-2">@function_tool decorator</td></tr>
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Delegacion</td><td class="py-2 pr-4">Handoff (primitiva nativa)</td><td class="py-2">handoff() helper</td></tr>
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Seguridad</td><td class="py-2 pr-4">Guardrail (primitiva nativa)</td><td class="py-2">Guardrail (input/output)</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Ejecucion</td><td class="py-2 pr-4">Runner.run(agent, input)</td><td class="py-2">Runner.run(agent, input)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-agent-muted leading-relaxed">
+      La similitud no es coincidencia: ambas companias convergieron en las mismas abstracciones porque el problema subyacente es el mismo. Un agente necesita: un cerebro (LLM + instrucciones), manos (herramientas), la capacidad de delegar, y un sistema de seguridad. El SDK que elijas depende del modelo que prefieras, no de la arquitectura.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Section 3: Construir un MCP Server                  -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">3. Construir un MCP Server</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Si el Agent SDK es para construir agentes, un MCP server es para <strong class="text-agent-text">ampliar las capacidades de agentes existentes</strong>. En vez de construir un agente desde cero, le das nuevas herramientas a Claude Code u otro cliente MCP. Es como instalar un plugin: el agente sigue siendo el mismo, pero ahora puede hacer cosas nuevas.
     </p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Vector Database (busqueda semantica)</p>
-        <p class="text-sm text-agent-muted mb-2">Para documentacion, codigo fuente, knowledge bases. Los datos se convierten en "embeddings" (vectores numericos) que permiten buscar por significado, no por palabras exactas.</p>
-        {@html `<pre class="code-block text-xs mt-2">## Ejemplo con Chroma (vector DB ligera)
-# 1. Guardar documentacion
-collection.add(
-    documents=["FastAPI usa Pydantic para validacion..."],
-    ids=["doc_1"],
-    metadatas=[{"source": "docs/api.md"}]
+    <h3 class="text-lg font-bold text-agent-text mb-3">Anatomia de un MCP Server</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      Un MCP server tiene una estructura sorprendentemente simple. Son solo tres piezas: la definicion del servidor, el registro de herramientas, y las funciones handler que implementan cada herramienta.
+    </p>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Estructura basica de un MCP server (pseudocodigo)</p>
+      {@html `<pre class="code-block text-agent-highlight text-sm"># ─── 1. Definir el servidor ───
+server = MCPServer(
+    name="mi-mcp-server",
+    version="1.0.0"
 )
 
-# 2. Buscar por significado
-results = collection.query(
-    query_texts=["como valido datos de entrada"],
-    n_results=5
-)
-# Retorna fragmentos relevantes aunque no usen
-# las mismas palabras exactas</pre>`}
-        <p class="text-xs text-agent-muted mt-2"><strong class="text-agent-text">Herramientas:</strong> Pinecone (cloud), Chroma (local), Weaviate, Qdrant</p>
-      </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Key-Value Store (datos estructurados)</p>
-        <p class="text-sm text-agent-muted mb-2">Para preferencias, configuraciones, datos que necesitas acceder por clave. No necesita embeddings porque los datos son simples y predecibles.</p>
-        {@html `<pre class="code-block text-xs mt-2">## Ejemplo con JSON file o Redis
-memory = {
-    "user_preferences": {
-        "theme": "dark",
-        "language": "es",
-        "framework": "FastAPI"
-    },
-    "project_conventions": {
-        "test_runner": "pytest",
-        "db": "PostgreSQL",
-        "style": "Google docstrings"
+# ─── 2. Registrar herramientas ───
+@server.tool(
+    name="search_documentation",
+    description="""Busca en la documentacion del proyecto por palabras clave.
+    Retorna los 5 fragmentos mas relevantes con path y numero de linea.
+    Usar cuando necesites entender como funciona una feature existente.""",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Palabras clave de busqueda"
+            },
+            "max_results": {
+                "type": "integer",
+                "default": 5,
+                "description": "Maximo de resultados a retornar"
+            }
+        },
+        "required": ["query"]
     }
-}
+)
+async def search_docs(query: str, max_results: int = 5):
+    """Handler: ejecuta la logica real de busqueda."""
+    results = index.search(query, limit=max_results)
+    return format_results(results)
 
-# Cargar al inicio de cada sesion
-system_prompt += f"\\nContexto del usuario: {json.dumps(memory)}"</pre>`}
-        <p class="text-xs text-agent-muted mt-2"><strong class="text-agent-text">Herramientas:</strong> Redis, archivo JSON, SQLite, DynamoDB</p>
-      </div>
+# ─── 3. Iniciar con transporte ───
+server.run(transport="stdio")  # Local: Claude Code lo ejecuta
+# server.run(transport="http", port=8080)  # Remoto: cloud</pre>`}
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Deep dive: Memoria Episodica (Experiencias)</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      La memoria episodica es la mas fascinante: permite al agente <strong class="text-agent-text">aprender de su propia experiencia</strong>. No es solo "que paso" sino "que funciono, que no funciono, y que hacer diferente la proxima vez".
-    </p>
+    <h3 class="text-lg font-bold text-agent-text mb-3">Los dos transportes</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-agent-card border border-agent-border rounded-lg p-4">
+        <p class="text-agent-accent font-bold text-sm mb-2">&#x1F4BB; stdio (local)</p>
+        <p class="text-sm text-agent-muted mb-2">El cliente MCP (Claude Code) ejecuta el servidor como un proceso hijo y se comunica via stdin/stdout. Es el mas comun para herramientas de desarrollo.</p>
+        {@html `<pre class="code-block text-xs mt-2">// En .claude/settings.json
+{
+  "mcpServers": {
+    "mi-server": {
+      "command": "node",
+      "args": ["./mcp-server/index.js"]
+    }
+  }
+}</pre>`}
+        <p class="text-xs text-agent-muted mt-2"><strong class="text-agent-text">Pros:</strong> Sin red, sin autenticacion, rapido. <strong class="text-agent-text">Contras:</strong> Solo local.</p>
+      </div>
+      <div class="bg-agent-card border border-agent-border rounded-lg p-4">
+        <p class="text-agent-accent font-bold text-sm mb-2">&#x1F310; HTTP (remoto)</p>
+        <p class="text-sm text-agent-muted mb-2">El servidor corre como un servicio independiente y se comunica via HTTP. Para servidores compartidos en la nube accesibles por multiples usuarios.</p>
+        {@html `<pre class="code-block text-xs mt-2">// En .claude/settings.json
+{
+  "mcpServers": {
+    "mi-server-cloud": {
+      "url": "https://mcp.miempresa.com/v1"
+    }
+  }
+}</pre>`}
+        <p class="text-xs text-agent-muted mt-2"><strong class="text-agent-text">Pros:</strong> Compartido, centralizado. <strong class="text-agent-text">Contras:</strong> Necesita autenticacion y red.</p>
+      </div>
+    </div>
 
     <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Claude Code implementa memoria episodica con el archivo <code class="text-agent-accent">~/.claude/agent-memory/MEMORY.md</code>. Cuando el agente descubre un patron, resuelve un problema dificil, o comete un error, puede guardar una nota en este archivo. En sesiones futuras, esas notas se cargan automaticamente en el system prompt. Asi el agente "recuerda" que la version de Pydantic en tu proyecto es v2 y no vuelve a generar codigo con syntax v1.</p>
+      <p class="text-sm text-agent-muted">El blog de Anthropic sobre <strong class="text-agent-text">Code Execution with MCP</strong> muestra como construyeron un MCP server que le da a Claude la capacidad de ejecutar codigo en un sandbox seguro. El server expone herramientas como <code class="text-agent-accent text-xs">execute_python</code> y <code class="text-agent-accent text-xs">execute_javascript</code>, cada una con validaciones de seguridad integradas. En vez de que Claude genere codigo y espere que el usuario lo ejecute, el MCP server permite ejecucion directa con aislamiento.</p>
     </div>
 
+    <h3 class="text-lg font-bold text-agent-text mb-3">Anatomia de un Tool en MCP</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      Cada herramienta que expone un MCP server tiene 4 componentes esenciales:
+    </p>
+    <div class="space-y-2 mb-4">
+      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded border border-agent-border">
+        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">name</span>
+        <p class="text-xs text-agent-muted">Identificador unico. Debe ser descriptivo: <code class="text-agent-accent">search_documentation</code> en vez de <code class="text-agent-accent">search</code>. El LLM lo usa para elegir entre herramientas disponibles.</p>
+      </div>
+      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded border border-agent-border">
+        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">description</span>
+        <p class="text-xs text-agent-muted">Texto que el LLM lee para decidir CUANDO usar la herramienta. Incluye: que hace, que retorna, y cuando es apropiada. Es <strong class="text-agent-text">prompt engineering aplicada a tools</strong>.</p>
+      </div>
+      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded border border-agent-border">
+        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">input_schema</span>
+        <p class="text-xs text-agent-muted">JSON Schema que define los parametros: tipos, validaciones, valores por defecto. El LLM genera argumentos que cumplen con este schema. El servidor valida antes de ejecutar.</p>
+      </div>
+      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded border border-agent-border">
+        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">handler</span>
+        <p class="text-xs text-agent-muted">La funcion que ejecuta la logica real. Recibe los argumentos validados y retorna el resultado como string o JSON. Aqui vive tu codigo de negocio.</p>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Buenas y malas definiciones de tools</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      La calidad de las definiciones de herramientas determina directamente la calidad del agente. Comparemos dos formas de definir la misma herramienta:
+    </p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-agent-dark border border-agent-danger/30 rounded-lg p-4">
+        <p class="text-agent-danger font-bold text-sm mb-2">&#x274C; Definicion pobre</p>
+        {@html `<pre class="code-block text-xs">@server.tool(
+    name="search",
+    description="busca cosas",
+    input_schema={
+        "properties": {
+            "q": {"type": "string"}
+        }
+    }
+)
+# Problemas:
+# - Nombre generico: busca DONDE? archivos? BD? web?
+# - Descripcion inutil: el LLM no sabe CUANDO usarla
+# - Parametro "q" sin descripcion
+# - No dice que RETORNA</pre>`}
+      </div>
+      <div class="bg-agent-dark border border-agent-success/30 rounded-lg p-4">
+        <p class="text-agent-success font-bold text-sm mb-2">&#x2705; Definicion profesional</p>
+        {@html `<pre class="code-block text-xs">@server.tool(
+    name="search_project_docs",
+    description="""Busca en la documentacion del
+    proyecto por palabras clave. Retorna los 5
+    fragmentos mas relevantes con path de archivo
+    y numero de linea. Usar cuando necesites
+    entender funcionalidad existente.
+    NO usar para buscar en codigo fuente
+    (usa search_code para eso).""",
+    input_schema={
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Palabras clave"
+            }
+        }
+    }
+)</pre>`}
+      </div>
+    </div>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">Anthropic lo llama <strong class="text-agent-text">"prompt engineering your tools"</strong>. La descripcion de una herramienta es un mini-prompt que guia al LLM. Incluir <strong class="text-agent-text">cuando usarla</strong> y <strong class="text-agent-text">cuando NO usarla</strong> reduce dramaticamente las llamadas incorrectas. No escatimes tokens en las descripciones: los tokens ahorrados ahi se pierden multiplicados en retries y errores.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">MCP en el ecosistema actual</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      MCP se ha convertido en un estandar de facto. La adopcion ha sido rapida porque resuelve un problema real: el problema <strong class="text-agent-text">N x M</strong>. Sin MCP, si tienes 5 agentes y 10 herramientas, necesitas 50 integraciones individuales. Con MCP, necesitas 10 MCP servers y 5 clientes MCP. El protocolo desacopla ambos lados.
+    </p>
+    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-agent-border">
+              <th class="text-left text-agent-text py-2 pr-4">Aspecto</th>
+              <th class="text-left text-agent-text py-2">Detalle</th>
+            </tr>
+          </thead>
+          <tbody class="text-agent-muted">
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Protocolo</td><td class="py-2">JSON-RPC 2.0 sobre stdio o HTTP</td></tr>
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Clientes</td><td class="py-2">Claude Code, Cursor, VS Code (Roo Code), Windsurf, OpenAI (anunciado)</td></tr>
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Lenguajes</td><td class="py-2">SDKs oficiales en TypeScript, Python. Comunidad: Go, Rust, Java, C#</td></tr>
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium">Servidores</td><td class="py-2">Miles en el registro oficial. Jira, GitHub, PostgreSQL, Slack, etc.</td></tr>
+            <tr><td class="py-2 pr-4 font-medium">Seguridad</td><td class="py-2">OAuth 2.1 para autenticacion, scoped permissions por herramienta</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Section 4: Hoofy como Caso de Estudio               -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">4. Hoofy como Caso de Estudio</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La teoria es importante, pero ver un MCP server real en produccion es invaluable. <strong class="text-agent-text">Hoofy</strong> es un MCP server escrito en Go que le da a Claude Code memoria persistente y un pipeline de desarrollo spec-driven. Con 30 herramientas registradas, es un caso de estudio perfecto para ver como se aplican los patrones que hemos discutido.
+    </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Composition Root: todo empieza en main.go</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      El primer patron arquitectonico que destaca en Hoofy es el <strong class="text-agent-text">Composition Root</strong>. Toda la inicializacion del sistema ocurre en un unico punto de entrada: <code class="text-agent-accent text-xs">main.go</code>. Ahi se crea la base de datos SQLite, se inicializa la capa de negocio, se conectan las 30 herramientas al protocolo MCP, y se arranca el servidor.
+    </p>
     <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Estructura de una memoria episodica</p>
-      {@html `<pre class="code-block text-xs"># Cada "episodio" almacena:
-episode = {
-    "timestamp": "2026-02-15T14:30:00",
-    "task": "Agregar autenticacion JWT al proyecto",
-    "outcome": "success",
-    "strategy": "Usar python-jose con RS256, claves en env vars",
-    "errors_found": [
-        "Primer intento uso HS256, inseguro para produccion",
-        "Olvide agregar token expiration"
-    ],
-    "lessons": [
-        "Siempre usar RS256 para JWT en produccion",
-        "Verificar que los tokens tengan campo 'exp'",
-        "Los tests deben cubrir tokens expirados"
-    ],
-    "files_modified": ["src/auth/jwt.py", "tests/test_jwt.py"]
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Composition Root simplificado</p>
+      {@html `<pre class="code-block text-xs">func main() {
+    // 1. Infraestructura: crear/abrir base de datos
+    db := sqlite.Open("hoofy.db")
+    db.RunMigrations()
+
+    // 2. Capa de negocio: logica pura, sin saber de MCP
+    memoryService := memory.NewService(db)
+    pipelineService := pipeline.NewService(db)
+
+    // 3. Bridge: conecta negocio con protocolo MCP
+    bridge := mcp.NewBridge(memoryService, pipelineService)
+
+    // 4. Registrar las 30 herramientas
+    server := mcp.NewServer("hoofy", "1.0.0")
+    bridge.RegisterTools(server)  // mem_save, mem_search, sdd_change...
+
+    // 5. Arrancar con transporte stdio
+    server.Run(transport.Stdio())
 }</pre>`}
     </div>
-
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Guardar TODO en la memoria episodica. Si cada accion trivial se almacena, la memoria se llena de ruido y el agente pierde la señal importante entre datos irrelevantes. La regla es: solo guarda <strong class="text-agent-text">lecciones, errores significativos, y decisiones arquitectonicas</strong>. No guardes "lei el archivo X" o "ejecute pytest".</p>
-    </div>
-
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Ejemplo concreto: Claude Code</p>
-      <p class="text-sm text-agent-muted">
-        <strong class="text-agent-text">Corta:</strong> la conversacion actual y los archivos leidos. <strong class="text-agent-text">Larga:</strong> CLAUDE.md y archivos de configuracion del proyecto. <strong class="text-agent-text">Episodica:</strong> el archivo MEMORY.md donde guarda lecciones aprendidas entre sesiones. Las tres capas trabajan juntas: la memoria larga da contexto del proyecto, la episodica da experiencia previa, y la corta es donde todo se combina con la tarea actual.
-      </p>
-    </div>
-  </section>
-
-  <!-- Section 2: Chain-of-Thought (CoT) -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">2. Chain-of-Thought (CoT)</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      La tecnica mas simple pero mas poderosa para mejorar el razonamiento de un LLM. Originada en el paper seminal de <strong class="text-agent-text">Wei et al. (2022)</strong> en Google Research, consiste en hacer que el modelo <strong class="text-agent-text">muestre sus pasos intermedios</strong> antes de llegar a una conclusion. Este descubrimiento cambio fundamentalmente como usamos los LLMs.
+      La ventaja del Composition Root es que <strong class="text-agent-text">las dependencias fluyen en una sola direccion</strong>: main.go conoce todo, pero la capa de negocio no sabe que existe MCP, y la base de datos no sabe que existe la logica de negocio. Si manana cambias SQLite por PostgreSQL, solo tocas la capa de infraestructura.
     </p>
 
-    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">El paper original de Chain-of-Thought mostro que simplemente agregar "Let's think step by step" al prompt mejoro la precision matematica de PaLM (540B) del <strong class="text-agent-text">17.7% al 58.1%</strong> en el benchmark GSM8K. Esas cinco palabras triplicaron el rendimiento. Fue uno de los descubrimientos mas impactantes en la historia de los LLMs.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4">
-        <p class="text-agent-danger font-bold text-sm mb-2">Sin CoT (respuesta directa)</p>
-        {@html `<pre class="code-block text-sm">Pregunta: Un repositorio tiene 847 archivos.
-Se eliminan 3 carpetas con 120, 89 y 43 archivos.
-Se agregan 2 carpetas con 67 y 155 archivos.
-Cuantos archivos quedan?
-
-Respuesta: 812
-(INCORRECTO - la respuesta es 817)</pre>`}
-      </div>
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-4">
-        <p class="text-agent-success font-bold text-sm mb-2">Con CoT (paso a paso)</p>
-        {@html `<pre class="code-block text-sm">Pensemos paso a paso:
-1. Inicio: 847 archivos
-2. Se eliminan: 120 + 89 + 43 = 252
-3. Despues de eliminar: 847 - 252 = 595
-4. Se agregan: 67 + 155 = 222
-5. Total final: 595 + 222 = 817
-
-Respuesta: 817 archivos
-(CORRECTO)</pre>`}
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Dos sabores de CoT</h3>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Zero-shot CoT</p>
-        <p class="text-sm text-agent-muted">Solo necesitas agregar "Piensa paso a paso" al prompt. El modelo genera la cadena de razonamiento automaticamente. Simple, rapido, y sorprendentemente efectivo.</p>
-        {@html `<pre class="code-block text-xs mt-2"># Simplemente agrega la instruccion
-prompt = f"""
-{pregunta}
-
-Piensa paso a paso antes de dar tu respuesta final.
-"""</pre>`}
-      </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Few-shot CoT</p>
-        <p class="text-sm text-agent-muted">Le das al modelo 2-3 ejemplos de razonamiento paso a paso ANTES de la pregunta. El modelo aprende el formato y lo replica. Mas preciso que zero-shot, pero consume mas tokens.</p>
-        {@html `<pre class="code-block text-xs mt-2"># Incluyes ejemplos de razonamiento
-prompt = f"""
-Ejemplo: Si tengo 5 bugs y arreglo 2, quedan 5-2=3 bugs.
-
-Ejemplo: Si deployment toma 10 min y rollback 3 min,
-total = 10+3 = 13 min.
-
-Ahora resuelve: {pregunta_real}
-"""</pre>`}
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo de CoT en codigo</h3>
+    <h3 class="text-lg font-bold text-agent-text mb-3">Bridge Pattern: separar protocolo de negocio</h3>
     <p class="text-agent-muted leading-relaxed mb-3">
-      CoT no es solo para matematicas. Funciona tambien para debugging:
+      El segundo patron clave es el <strong class="text-agent-text">Bridge</strong>. En Hoofy, hay una capa intermedia que traduce entre el protocolo MCP (request JSON-RPC con tool_name y args) y la logica de negocio (funciones Go con tipos nativos). La capa de negocio <strong class="text-agent-text">no importa ningun paquete de MCP</strong>.
     </p>
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-xs">Pregunta: Este endpoint retorna 500 cuando se envia un POST
-con un body vacio. Que esta mal?
-
-@router.post("/users")
-async def create_user(data: UserCreate):
-    user = User(**data.model_dump())
-    db.add(user)
-    await db.commit()
-    return user
-
-CoT del modelo:
-1. El endpoint espera UserCreate en el body
-2. Si el body esta VACIO, Pydantic intenta validar {} contra UserCreate
-3. Si UserCreate tiene campos required, Pydantic lanza ValidationError
-4. PERO: FastAPI deberia retornar 422 (Validation Error), no 500
-5. Si retorna 500, significa que el error NO es de validacion
-6. El problema es User(**data.model_dump()) - si data.model_dump()
-   retorna campos que User no acepta, SQLAlchemy lanza un error
-7. SOLUCION: verificar que los campos de UserCreate coincidan
-   exactamente con los de User, o usar un mapper explicito.</pre>`}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
+        <p class="text-2xl mb-1">&#x1F4E1;</p>
+        <p class="text-agent-accent font-bold text-sm">Protocolo MCP</p>
+        <p class="text-xs text-agent-muted mt-2">Recibe JSON-RPC, valida schema, despacha a la funcion correcta.</p>
+      </div>
+      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-4 text-center">
+        <p class="text-2xl mb-1">&#x1F309;</p>
+        <p class="text-agent-accent font-bold text-sm">Bridge</p>
+        <p class="text-xs text-agent-muted mt-2">Traduce: extrae argumentos del JSON, llama al servicio, formatea la respuesta.</p>
+      </div>
+      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
+        <p class="text-2xl mb-1">&#x1F9E0;</p>
+        <p class="text-agent-accent font-bold text-sm">Logica de Negocio</p>
+        <p class="text-xs text-agent-muted mt-2">Funciones Go puras. No sabe que MCP existe. Testeable con unit tests simples.</p>
+      </div>
     </div>
-
-    <p class="text-agent-muted leading-relaxed mb-3">
-      CoT funciona porque obliga al modelo a <strong class="text-agent-text">descomponer problemas complejos en pasos manejables</strong>. Cada paso se puede verificar individualmente. Cuando NO usar CoT: preguntas factuales simples ("Que version de Python necesito?") no se benefician de razonamiento paso a paso.
-    </p>
 
     <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">CoT no es solo una tecnica de prompting: es la base de como los agentes "piensan" internamente. Cuando Claude Code decide que herramienta usar, internamente hace una cadena de razonamiento: "El usuario quiere X. Para X necesito leer el archivo Y. Voy a usar la herramienta Read." Ese proceso interno ES Chain-of-Thought.</p>
+      <p class="text-sm text-agent-muted">El principio detras del Bridge Pattern es <strong class="text-agent-text">composition over inheritance</strong>. En vez de que los tools hereden de una clase base MCP (acoplamiento fuerte), se componen a traves de una capa intermedia (acoplamiento debil). El resultado: puedes testear toda la logica de memoria sin montar un servidor MCP, y puedes cambiar el protocolo sin tocar el dominio.</p>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Resumen visual: cuando usar cada variante</h3>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4 text-center">
-        <p class="text-agent-accent font-bold text-sm mb-1">Zero-shot CoT</p>
-        <p class="text-xs text-agent-muted">Rapido de implementar. Bueno para la mayoria de casos. Solo agrega "piensa paso a paso" al prompt.</p>
-        <p class="text-xs text-agent-success mt-2">Usa cuando: necesitas una mejora rapida y facil</p>
+    <h3 class="text-lg font-bold text-agent-text mb-3">Knowledge Graph: relaciones tipadas</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      El sistema de memoria de Hoofy no es una lista plana de notas. Es un <strong class="text-agent-text">knowledge graph</strong> donde las observaciones (decisiones, bugs, patrones, descubrimientos) se conectan con relaciones tipadas.
+    </p>
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Knowledge Graph: ejemplo de navegacion</p>
+      {@html `<pre class="code-block text-xs"># Observacion: "Migramos de REST a GraphQL"
+#   ├── relates_to → "Elegimos SQLAlchemy 2.0 como ORM"
+#   ├── caused_by  → "Los endpoints N+1 degradaron performance"
+#   ├── implements  → "RFC-003: API Redesign"
+#   └── depends_on → "Graphene configurado con async resolvers"
+#
+# mem_build_context(observation_id=42, depth=2)
+# → Devuelve TODAS las observaciones conectadas hasta 2 niveles
+# → El agente entiende no solo QUE se decidio, sino POR QUE
+
+Tipos de relacion disponibles:
+  relates_to   → Conexion general entre conceptos
+  implements   → Esta observacion implementa la otra
+  depends_on   → Requiere que la otra exista primero
+  caused_by    → Esta observacion fue causada por la otra
+  supersedes   → Reemplaza una decision anterior
+  part_of      → Es una parte de un todo mas grande</pre>`}
+    </div>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Cuando Claude Code pregunta "por que se tomo esta decision?", el grafo le permite navegar desde la decision hasta sus causas, dependencias e implementaciones. Es <strong class="text-agent-text">memoria con contexto</strong>, no solo memoria con busqueda.
+    </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Adaptive Pipeline: 12 variantes de flujo</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      El pipeline de desarrollo de Hoofy no es unico. Son <strong class="text-agent-text">12 variantes diferentes</strong> generadas por la combinacion de tipo (feature, fix, refactor, enhancement) y tamano (small, medium, large). Un fix pequeno no necesita las mismas fases que una feature grande.
+    </p>
+    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-agent-border">
+              <th class="text-left text-agent-text py-2 pr-4">Tamano</th>
+              <th class="text-left text-agent-text py-2 pr-4">Fases</th>
+              <th class="text-left text-agent-text py-2">Ejemplo</th>
+            </tr>
+          </thead>
+          <tbody class="text-agent-muted">
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium text-agent-accent">Small (3)</td><td class="py-2 pr-4">plan &#x2192; implement &#x2192; verify</td><td class="py-2">Fix de un typo, rename de variable</td></tr>
+            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 font-medium text-agent-accent">Medium (4)</td><td class="py-2 pr-4">plan &#x2192; design &#x2192; implement &#x2192; verify</td><td class="py-2">Agregar un endpoint, refactor de modulo</td></tr>
+            <tr><td class="py-2 pr-4 font-medium text-agent-accent">Large (5-6)</td><td class="py-2 pr-4">spec &#x2192; clarify &#x2192; design &#x2192; tasks &#x2192; implement &#x2192; verify</td><td class="py-2">Feature completa, nueva arquitectura</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4 text-center">
-        <p class="text-agent-accent font-bold text-sm mb-1">Few-shot CoT</p>
-        <p class="text-xs text-agent-muted">Necesita ejemplos preparados. Mas preciso en dominios especificos. Consume mas tokens.</p>
-        <p class="text-xs text-agent-success mt-2">Usa cuando: tienes un dominio especifico y necesitas precision maxima</p>
-      </div>
+    </div>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Leccion de Hoofy</p>
+      <p class="text-sm text-agent-muted">Los tres patrones de Hoofy (Composition Root, Bridge, Knowledge Graph) comparten una filosofia: <strong class="text-agent-text">separar responsabilidades y componer piezas simples</strong>. El main.go compone las dependencias. El Bridge compone protocolo con negocio. El Knowledge Graph compone observaciones con relaciones. Cuando construyas tu propio MCP server, empieza por definir donde vive cada responsabilidad.</p>
     </div>
   </section>
 
-  <!-- Section 3: Tree-of-Thought (ToT) -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Section 5: Cuando Agent SDK vs Claude Code          -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">3. Tree-of-Thought (ToT)</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">5. Cuando Agent SDK vs Claude Code Directo</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Chain-of-Thought es lineal: un solo camino. Pero que pasa si el primer camino no es el correcto? <strong class="text-agent-text">Tree-of-Thought</strong> explora multiples caminos en paralelo, como un jugador de ajedrez que piensa varias jugadas por adelantado. Introducido por Yao et al. (2023) en Princeton.
+      Una de las preguntas mas frecuentes es: "Deberia usar Claude Code directamente o construir algo con el Agent SDK?" La respuesta depende de <strong class="text-agent-text">que estas construyendo y para quien</strong>.
     </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-3">Los 4 pasos de ToT</p>
-      <div class="space-y-3">
-        <div class="flex items-start gap-3">
-          <span class="shrink-0 w-8 h-8 rounded-full bg-agent-accent/20 flex items-center justify-center text-agent-accent font-bold text-sm">1</span>
-          <div>
-            <p class="text-agent-text font-bold text-sm">Generar: crear multiples caminos de razonamiento</p>
-            <p class="text-xs text-agent-muted">"Puedo resolver esto de 3 formas: A, B, o C..."</p>
-          </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F4BB;</span>
+          <p class="text-agent-accent font-bold text-sm">Claude Code Directo</p>
         </div>
-        <div class="flex items-start gap-3">
-          <span class="shrink-0 w-8 h-8 rounded-full bg-agent-accent/20 flex items-center justify-center text-agent-accent font-bold text-sm">2</span>
-          <div>
-            <p class="text-agent-text font-bold text-sm">Evaluar: determinar cual camino es mas prometedor</p>
-            <p class="text-xs text-agent-muted">"El camino A tiene un problema en el paso 2, B parece viable, C es demasiado complejo..."</p>
-          </div>
+        <p class="text-sm text-agent-muted mb-3">Cuando TU necesitas hacer trabajo de desarrollo.</p>
+        <ul class="space-y-1 text-xs text-agent-muted">
+          <li>&#x2022; Modificar codigo en un proyecto</li>
+          <li>&#x2022; Correr tests y debugging</li>
+          <li>&#x2022; Explorar y entender codebases</li>
+          <li>&#x2022; Gestionar git y deploys</li>
+          <li>&#x2022; Tareas interactivas con feedback</li>
+        </ul>
+        <p class="text-xs text-agent-accent mt-3 font-medium">Eres el usuario; Claude Code es tu herramienta.</p>
+      </div>
+      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x26A1;</span>
+          <p class="text-agent-accent font-bold text-sm">Agent SDK</p>
         </div>
-        <div class="flex items-start gap-3">
-          <span class="shrink-0 w-8 h-8 rounded-full bg-agent-accent/20 flex items-center justify-center text-agent-accent font-bold text-sm">3</span>
-          <div>
-            <p class="text-agent-text font-bold text-sm">Seleccionar: profundizar en el mejor camino</p>
-            <p class="text-xs text-agent-muted">"Sigo con B porque es la mejor relacion calidad/complejidad..."</p>
-          </div>
+        <p class="text-sm text-agent-muted mb-3">Cuando construyes un PRODUCTO que embebe un agente.</p>
+        <ul class="space-y-1 text-xs text-agent-muted">
+          <li>&#x2022; Bot de Slack que responde preguntas</li>
+          <li>&#x2022; Sistema de code review automatico</li>
+          <li>&#x2022; Pipeline de procesamiento de datos</li>
+          <li>&#x2022; Herramienta SaaS con agente interno</li>
+          <li>&#x2022; Control total del loop y las tools</li>
+        </ul>
+        <p class="text-xs text-agent-accent mt-3 font-medium">Tus USUARIOS usan tu agente; tu controlas todo.</p>
+      </div>
+      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#x1F50C;</span>
+          <p class="text-agent-accent font-bold text-sm">MCP Server</p>
         </div>
-        <div class="flex items-start gap-3">
-          <span class="shrink-0 w-8 h-8 rounded-full bg-agent-accent/20 flex items-center justify-center text-agent-accent font-bold text-sm">4</span>
-          <div>
-            <p class="text-agent-text font-bold text-sm">Backtrack: si el camino elegido falla, volver y probar otro</p>
-            <p class="text-xs text-agent-muted">"B no funciono, vuelvo a intentar con C..."</p>
-          </div>
-        </div>
+        <p class="text-sm text-agent-muted mb-3">Cuando quieres ampliar un agente existente.</p>
+        <ul class="space-y-1 text-xs text-agent-muted">
+          <li>&#x2022; Dar a Claude Code acceso a tu BD</li>
+          <li>&#x2022; Integrar con APIs internas</li>
+          <li>&#x2022; Agregar herramientas custom a IDEs</li>
+          <li>&#x2022; Compartir herramientas con el equipo</li>
+          <li>&#x2022; Sin tocar el agente base</li>
+        </ul>
+        <p class="text-xs text-agent-accent mt-3 font-medium">Extiendes un agente existente; no construyes uno nuevo.</p>
       </div>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo practico: Diseñar un sistema de cache</h3>
     <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-xs">Tarea: "Necesitamos cache para los endpoints mas consultados."
-
-ToT genera 3 ramas:
-
-Rama A: Redis como cache distribuido
-  -> Pros: rapido, escalable, TTL nativo
-  -> Evaluar: requiere infraestructura adicional
-  -> Veredicto: bueno para produccion grande
-
-Rama B: Cache en memoria (lru_cache / cachetools)
-  -> Pros: zero dependencias, ultra rapido
-  -> Evaluar: no comparte entre instancias
-  -> Veredicto: bueno para monolitos single-instance
-
-Rama C: CDN cache (CloudFront, Fastly)
-  -> Pros: global, reduce carga del servidor
-  -> Evaluar: solo para contenido estatico/idem
-  -> Veredicto: complemento, no reemplazo
-
-Seleccion: Depende del contexto del proyecto...
-Si hay multiples instancias -> Rama A (Redis)
-Si es un monolito -> Rama B (in-memory)
-Si son APIs publicas leidas -> Rama A + C (ambos)</pre>`}
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Arbol de decision</p>
+      {@html `<pre class="code-block text-xs">
+¿Necesitas que el agente opere en TU codebase?
+  ├── SI → ¿Es una tarea interactiva que necesita tu feedback?
+  │         ├── SI → Claude Code directo
+  │         └── NO → Claude Code headless (CI/CD)
+  │
+  └── NO → ¿Construyes un producto para OTROS usuarios?
+            ├── SI → Agent SDK (control total del loop y UX)
+            └── NO → ¿Quieres agregar herramientas a un agente existente?
+                      ├── SI → MCP Server
+                      └── NO → API de Claude directa (mas simple)</pre>`}
     </div>
 
     <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Los agentes de planificacion como los que usan Devin o aider internamente aplican una variante de ToT cuando necesitan decidir la estrategia de implementacion. Generan 2-3 enfoques posibles, evaluan cada uno contra los constraints del proyecto (stack tecnologico, complejidad, tiempo), y ejecutan el mas prometedor. Si ese camino falla, "backtrackean" al segundo mejor.</p>
+      <p class="text-sm text-agent-muted">El equipo de <strong class="text-agent-text">incident.io</strong> usa Claude Code directo para desarrollo diario (4-7 sesiones paralelas con worktrees). Pero cuando construyeron su bot interno que clasifica incidentes automaticamente, usaron el Agent SDK porque necesitaban control total sobre el flujo: recibir un webhook de PagerDuty &#x2192; clasificar &#x2192; asignar equipo &#x2192; crear canal de Slack. El Agent SDK les dio el control del loop; Claude Code les dio la velocidad de desarrollo.</p>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">CoT vs ToT: cuando usar cada uno</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Aspecto</th>
-              <th class="text-left text-agent-text py-2 pr-4">Chain-of-Thought</th>
-              <th class="text-left text-agent-text py-2">Tree-of-Thought</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Velocidad</td><td class="py-2 pr-4 text-agent-success">Rapido (1 camino)</td><td class="py-2 text-agent-warning">Lento (3-5 caminos)</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Costo tokens</td><td class="py-2 pr-4 text-agent-success">Normal</td><td class="py-2 text-agent-danger">3-5x mas</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Backtracking</td><td class="py-2 pr-4 text-agent-danger">No</td><td class="py-2 text-agent-success">Si</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Problemas simples</td><td class="py-2 pr-4 text-agent-success">Ideal</td><td class="py-2 text-agent-danger">Overkill</td></tr>
-            <tr><td class="py-2 pr-4">Problemas ambiguos</td><td class="py-2 pr-4 text-agent-warning">Puede fallar</td><td class="py-2 text-agent-success">Brilla</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="bg-agent-warning/10 border border-agent-warning/30 rounded-lg p-4">
-      <p class="text-agent-warning font-bold text-sm">Trade-off importante</p>
-      <p class="text-sm text-agent-muted mt-1">ToT consume 3-5x mas tokens que CoT y anade latencia significativa. Usalo solo para problemas complejos con multiples soluciones posibles (diseño de arquitectura, decisiones de stack, debugging de problemas ambiguos). Para problemas con una solucion clara (formatear datos, corregir un typo), CoT es suficiente y mucho mas economico.</p>
-    </div>
-  </section>
-
-  <!-- Section 4: El Patron ReAct -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">4. El Patron ReAct</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      <strong class="text-agent-text">ReAct</strong> (Reasoning + Acting) es el patron que usan la mayoria de agentes modernos, incluyendo Claude Code. Introducido por <strong class="text-agent-text">Yao et al. (2022)</strong> en Princeton y Google Research, este patron intercala razonamiento y accion: el agente piensa, actua, observa, y repite. Es probablemente el concepto mas importante de todo este curso.
-    </p>
-
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">ReAct es la base de la mayoria de agentes de codigo modernos. Cuando usas Claude Code, Cursor Agent, o aider, internamente estan ejecutando un loop de ReAct: el modelo <strong class="text-agent-text">piensa</strong> (Thought) sobre que hacer, <strong class="text-agent-text">actua</strong> (Action) ejecutando una herramienta, <strong class="text-agent-text">observa</strong> (Observation) el resultado, y repite. Entender ReAct es entender como funcionan TODOS estos agentes.</p>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El paper original: por que funciona</h3>
+    <h3 class="text-lg font-bold text-agent-text mb-3">El mismo problema, tres enfoques</h3>
     <p class="text-agent-muted leading-relaxed mb-3">
-      Yao et al. probaron que combinar razonamiento con acciones produce mejores resultados que hacer solo una de las dos:
+      Para que la diferencia sea concreta, veamos como resolverias el mismo problema ("necesito que al hacer push a main, se genere un resumen del PR automaticamente") con cada herramienta:
     </p>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4">
-        <p class="text-agent-danger font-bold text-sm mb-2">Solo actuar (Act-only)</p>
-        <p class="text-xs text-agent-muted">El agente ejecuta herramientas sin razonar. Es rapido pero impreciso: actua "a ciegas" y pierde tiempo en acciones irrelevantes.</p>
+    <div class="space-y-3 mb-4">
+      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+        <p class="text-agent-accent font-bold text-sm mb-2">&#x1F4BB; Claude Code (headless en CI)</p>
+        <p class="text-xs text-agent-muted">Configuras la GitHub Action de Claude Code con un trigger phrase. Cuando alguien abre un PR, Claude Code lee el diff, entiende los cambios, y escribe un resumen como comentario. <strong class="text-agent-text">Cero codigo propio</strong>, solo configuracion.</p>
       </div>
-      <div class="bg-agent-warning/10 border border-agent-warning/30 rounded-lg p-4">
-        <p class="text-agent-warning font-bold text-sm mb-2">Solo razonar (CoT)</p>
-        <p class="text-xs text-agent-muted">El agente piensa pero no puede actuar. Si necesita informacion que no tiene en el contexto, no puede ir a buscarla. "Alucina" datos que no tiene.</p>
+      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+        <p class="text-agent-accent font-bold text-sm mb-2">&#x26A1; Agent SDK</p>
+        <p class="text-xs text-agent-muted">Construyes un microservicio: webhook de GitHub &#x2192; tu agente lee el diff con tools custom &#x2192; genera el resumen &#x2192; llama la API de GitHub para postear el comentario. <strong class="text-agent-text">Control total pero mas codigo</strong>. Ideal si necesitas logica custom (categorizar cambios, detectar breaking changes, notificar por Slack).</p>
       </div>
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-4">
-        <p class="text-agent-success font-bold text-sm mb-2">ReAct (Reason + Act)</p>
-        <p class="text-xs text-agent-muted">El agente piensa Y actua. Razona sobre que informacion necesita, la busca, observa el resultado, y razona de nuevo. Lo mejor de ambos mundos.</p>
+      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+        <p class="text-agent-accent font-bold text-sm mb-2">&#x1F50C; MCP Server</p>
+        <p class="text-xs text-agent-muted">Creas un MCP server que expone <code class="text-agent-accent text-xs">get_pr_diff</code> y <code class="text-agent-accent text-xs">post_pr_comment</code>. Ahora Claude Code puede hacerlo manualmente cuando se lo pides. <strong class="text-agent-text">No esta automatizado</strong>, pero extiende lo que Claude Code puede hacer en tu flujo diario.</p>
       </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Traza completa de un agente ReAct debuggeando</h3>
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">8 pasos de razonamiento interleaved con acciones</p>
-      {@html `<pre class="code-block text-agent-highlight text-sm">Thought 1: El usuario reporta un TypeError en process_data().
-Necesito encontrar la definicion de esa funcion primero.
-
-Action 1: search_codebase("def process_data")
-Observation 1: Encontrado en src/pipeline.py linea 45
-
-Thought 2: Voy a leer la funcion para entender que hace
-y donde podria ocurrir el TypeError. Un TypeError suele
-ser por pasar un tipo incorrecto a una operacion.
-
-Action 2: read_file("src/pipeline.py", lines="40-70")
-Observation 2: La funcion recibe 'data' y hace data.split(",")
-en la linea 52.
-
-Thought 3: Si 'data' no es un string sino un int o None,
-data.split() lanzara TypeError. Necesito verificar que
-tipo se esta pasando. Voy a buscar donde se llama.
-
-Action 3: search_codebase("process_data(")
-Observation 3: Llamada en main.py linea 23 con el resultado
-de fetch_api() que retorna un dict, no un string.
-
-Thought 4: Encontre el bug. fetch_api() retorna un dict pero
-process_data() espera un string. La solucion es extraer
-el campo correcto del dict. Voy a verificar la estructura
-del dict que retorna fetch_api().
-
-Action 4: read_file("src/api.py", lines="15-30")
-Observation 4: fetch_api() retorna {"data": "csv_string", "status": 200}
-
-Thought 5: El fix es claro: en main.py, cambiar
-process_data(fetch_api()) a process_data(fetch_api()["data"])
-Voy a hacer el cambio y escribir un test para este caso.</pre>`}
-    </div>
-
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Nota como cada <strong class="text-agent-text">Thought</strong> justifica la proxima <strong class="text-agent-text">Action</strong>, y cada <strong class="text-agent-text">Observation</strong> alimenta el siguiente Thought. Este ciclo es lo que hace a ReAct tan efectivo: el agente no actua a ciegas, razona sobre cada paso. Nunca hay una Action sin un Thought previo que la justifique.
-    </p>
-
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Saltarse el paso de Thought y pasar directamente de Observation a Action. Si el agente observa "archivo encontrado en 3 ubicaciones" y directamente lee uno sin razonar POR QUE eligio ese, las decisiones se vuelven aleatorias. El Thought intermedio es lo que da nombre al patron: <strong class="text-agent-text">RE</strong>ason + <strong class="text-agent-text">ACT</strong>.</p>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">ReAct vs CoT vs Act-only: comparacion</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Aspecto</th>
-              <th class="text-left text-agent-text py-2 pr-4">Act-only</th>
-              <th class="text-left text-agent-text py-2 pr-4">CoT (solo razonar)</th>
-              <th class="text-left text-agent-text py-2">ReAct</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Puede actuar?</td><td class="py-2 pr-4 text-agent-success">Si</td><td class="py-2 pr-4 text-agent-danger">No</td><td class="py-2 text-agent-success">Si</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Razona antes?</td><td class="py-2 pr-4 text-agent-danger">No</td><td class="py-2 pr-4 text-agent-success">Si</td><td class="py-2 text-agent-success">Si</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Acceso a datos reales?</td><td class="py-2 pr-4 text-agent-success">Si</td><td class="py-2 pr-4 text-agent-danger">No (alucina)</td><td class="py-2 text-agent-success">Si</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Precision</td><td class="py-2 pr-4 text-agent-warning">Media</td><td class="py-2 pr-4 text-agent-warning">Alta (si tiene datos)</td><td class="py-2 text-agent-success">Mas alta</td></tr>
-            <tr><td class="py-2 pr-4">Uso en agentes</td><td class="py-2 pr-4 text-agent-danger">Basico</td><td class="py-2 pr-4 text-agent-warning">Limitado</td><td class="py-2 text-agent-success">Estandar</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">ReAct es el patron que Claude Code usa INTERNAMENTE en cada iteracion. Cuando le pides "arregla este bug", el agente: (Thought) razona sobre que informacion necesita, (Action) busca en el codigo, (Observation) ve los resultados, (Thought) razona sobre el problema, (Action) edita el archivo, (Observation) verifica el resultado. Todo esto sucede en el agentic loop del modulo anterior. ReAct es la ESTRATEGIA de razonamiento; el agentic loop es la INFRAESTRUCTURA que la ejecuta.</p>
-    </div>
-  </section>
-
-  <!-- Section 5: Extended Thinking -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">5. Extended Thinking</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Los modelos avanzados como Claude con thinking habilitado pueden generar <strong class="text-agent-text">bloques de pensamiento extenso</strong> antes de responder. Es como darle al modelo tiempo extra para pensar profundamente antes de hablar. En terminos tecnicos, el modelo genera tokens de "pensamiento" internos que no se muestran al usuario pero que mejoran drasticamente la calidad de la respuesta.
-    </p>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Como funciona internamente</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Cuando extended thinking esta activado, la respuesta del modelo tiene dos partes:
-    </p>
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-xs"># La API retorna algo como:
-response = {
-    "thinking": [
-        "Veamos este problema de concurrencia...",
-        "El usuario tiene un race condition porque...",
-        "Hay 3 formas de resolverlo: locks, queues, o...",
-        "La mejor opcion dado su stack es..."
-    ],  # Tokens de pensamiento (no visibles al usuario)
-
-    "content": "Tu race condition se resuelve con..."
-    # La respuesta final (visible al usuario)
-}
-
-# El parametro budget_tokens controla CUANTO puede pensar:
-response = client.messages.create(
-    model="claude-opus-4-6",
-    thinking={
-        "type": "enabled",
-        "budget_tokens": 10000  # max tokens de pensamiento
-    },
-    messages=[...]
-)</pre>`}
     </div>
 
     <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">En benchmarks de codigo complejo, extended thinking mejora el rendimiento de Claude en un <strong class="text-agent-text">30-50%</strong> en tareas como debugging multi-archivo, diseño de arquitectura, y analisis de seguridad. La mejora no es lineal: para tareas simples (renombrar una variable, formatear JSON), extended thinking no mejora nada y solo agrega latencia y costo.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <div class="bg-agent-card border border-agent-border rounded-lg p-4">
-        <p class="text-agent-success font-bold text-sm mb-2">Cuando USARLO</p>
-        <ul class="space-y-1 text-sm text-agent-muted">
-          <li>&#x2713; Debugging de bugs complejos multi-archivo</li>
-          <li>&#x2713; Diseño de arquitectura (evaluando trade-offs)</li>
-          <li>&#x2713; Analisis de seguridad (buscando vulnerabilidades)</li>
-          <li>&#x2713; Refactoring con cambios de diseño significativos</li>
-          <li>&#x2713; Problemas de concurrencia/race conditions</li>
-          <li>&#x2713; Code review de logica de negocio compleja</li>
-        </ul>
-      </div>
-      <div class="bg-agent-card border border-agent-border rounded-lg p-4">
-        <p class="text-agent-danger font-bold text-sm mb-2">Cuando NO usarlo</p>
-        <ul class="space-y-1 text-sm text-agent-muted">
-          <li>&#x2717; Leer un archivo y describir que hace</li>
-          <li>&#x2717; Renombrar variables o funciones</li>
-          <li>&#x2717; Formatear o lintear codigo</li>
-          <li>&#x2717; Buscar un patron en el codebase</li>
-          <li>&#x2717; Generar boilerplate/scaffolding</li>
-          <li>&#x2717; Responder preguntas factuales simples</li>
-        </ul>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El trade-off: calidad vs costo vs latencia</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Modo</th>
-              <th class="text-left text-agent-text py-2 pr-4">Calidad</th>
-              <th class="text-left text-agent-text py-2 pr-4">Latencia</th>
-              <th class="text-left text-agent-text py-2">Costo</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Sin thinking</td><td class="py-2 pr-4">Buena para tareas simples</td><td class="py-2 pr-4 text-agent-success">1-3 segundos</td><td class="py-2 text-agent-success">Normal</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Thinking (budget bajo)</td><td class="py-2 pr-4">Mejor para tareas medias</td><td class="py-2 pr-4 text-agent-warning">5-15 segundos</td><td class="py-2 text-agent-warning">2-3x</td></tr>
-            <tr><td class="py-2 pr-4">Thinking (budget alto)</td><td class="py-2 pr-4">Optima para tareas complejas</td><td class="py-2 pr-4 text-agent-danger">30s - 2 min</td><td class="py-2 text-agent-danger">5-10x</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4">
-      <p class="text-agent-accent font-bold text-sm">Regla practica para produccion</p>
-      <p class="text-sm text-agent-muted mt-1">Usa un "router" que active extended thinking solo para tareas que lo necesitan. El agente puede decidir automaticamente: si la tarea es simple (buscar, leer), usa el modo rapido. Si es compleja (debugging, arquitectura, seguridad), activa thinking. Esto optimiza tanto el costo como la experiencia del usuario.</p>
+      <p class="text-sm text-agent-muted">La recomendacion de Anthropic es clara: <strong class="text-agent-text">"Start with the simplest solution that could work."</strong> Si Claude Code headless resuelve tu caso, no construyas un Agent SDK custom. Si un MCP server basta, no construyas un pipeline completo. Escala la complejidad solo cuando la evidencia lo justifique. Muchos equipos sobre-ingenieran soluciones con agentes cuando un prompt bien escrito en la GitHub Action bastaba.</p>
     </div>
   </section>
 
-  <!-- Section 6: Disenando un Sistema de Memoria -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Section 6: El Agentic Loop en Detalle               -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">6. Disenando un Sistema de Memoria</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">6. El Agentic Loop en Detalle</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Un sistema de memoria bien disenado combina las tres capas: corta, larga y episodica. La clave es saber <strong class="text-agent-text">que guardar, donde, y como recuperarlo</strong>. Un sistema de memoria mal disenado es peor que no tener memoria: agrega ruido, consume tokens, y confunde al agente.
+      Ya vimos el loop basico en el modulo anterior y las 4 fases al inicio de este modulo. Ahora vamos a construir un agentic loop <strong class="text-agent-text">production-ready</strong> que incluya error handling, retries, y stop conditions. Estas son las piezas que separan un prototipo de un agente que realmente funciona.
+    </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">El loop completo con error handling</h3>
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Agentic loop production-ready (pseudocodigo)</p>
+      {@html `<pre class="code-block text-agent-highlight text-sm">class ProductionAgent:
+    def __init__(self, tools, instructions,
+                 max_iterations=25, token_budget=150000):
+        self.tools = tools
+        self.instructions = instructions
+        self.max_iterations = max_iterations
+        self.token_budget = token_budget
+        self.tokens_used = 0
+
+    def run(self, task: str) -> str:
+        messages = [
+            {"role": "system", "content": self.instructions},
+            {"role": "user", "content": task}
+        ]
+
+        for iteration in range(self.max_iterations):
+            # ── Stop condition 1: token budget ──
+            if self.tokens_used > self.token_budget:
+                return self.graceful_exit(messages,
+                    "Token budget excedido")
+
+            # ── Llamada al LLM ──
+            response = llm.generate(messages, self.tools)
+            messages.append(response.message)
+            self.tokens_used += response.usage.total_tokens
+
+            # ── Stop condition 2: respuesta sin tools ──
+            if not response.tool_calls:
+                return response.text  # Tarea completa
+
+            # ── Ejecutar cada tool call ──
+            for tool_call in response.tool_calls:
+                result = self.execute_with_retry(
+                    tool_call, max_retries=3
+                )
+                messages.append(tool_result(
+                    tool_call.id, result
+                ))
+
+            # ── Gestion de contexto ──
+            if count_tokens(messages) > MAX_CONTEXT * 0.8:
+                messages = self.compress(messages)
+
+        # ── Stop condition 3: max iteraciones ──
+        return self.graceful_exit(messages,
+            "Max iteraciones alcanzado")
+
+    def execute_with_retry(self, tool_call, max_retries=3):
+        """Ejecuta con backoff exponencial."""
+        for attempt in range(max_retries):
+            try:
+                # Validar parametros contra schema
+                validate(tool_call.args, tool_call.schema)
+                return self.tools[tool_call.name](
+                    **tool_call.args
+                )
+            except TransientError as e:
+                # Error transitorio: reintentar
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                sleep(wait)
+            except PermanentError as e:
+                # Error permanente: no reintentar
+                return {"error": str(e)}
+        return {"error": "Max retries excedidos"}
+
+    def graceful_exit(self, messages, reason):
+        """Salida limpia: resumen de lo logrado."""
+        summary = llm.generate([
+            *messages,
+            {"role": "user",
+             "content": f"Detente. {reason}. Resume lo logrado."}
+        ])
+        return summary.text</pre>`}
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Las 3 stop conditions criticas</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      Un agentic loop sin stop conditions es una bomba de tiempo. Estas son las tres paradas de emergencia que todo agente necesita:
+    </p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
+        <p class="text-2xl mb-1">&#x1F4AC;</p>
+        <p class="text-agent-accent font-bold text-sm">Sin tool_calls</p>
+        <p class="text-xs text-agent-muted mt-2">La stop condition natural: el LLM decidio que la tarea esta completa y responde con texto. Es la salida feliz.</p>
+      </div>
+      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
+        <p class="text-2xl mb-1">&#x1F504;</p>
+        <p class="text-agent-accent font-bold text-sm">Max iteraciones</p>
+        <p class="text-xs text-agent-muted mt-2">Limite duro de iteraciones del loop. Previene que el agente se quede atascado en ciclos infinitos de tool calls fallidas.</p>
+      </div>
+      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
+        <p class="text-2xl mb-1">&#x1F4B0;</p>
+        <p class="text-agent-accent font-bold text-sm">Token budget</p>
+        <p class="text-xs text-agent-muted mt-2">Kill switch financiero. Si el agente ya gasto N tokens, se detiene antes de la siguiente llamada al LLM. Critico en produccion.</p>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Retry con backoff exponencial</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      No todos los errores merecen un retry. La distincion clave es entre errores <strong class="text-agent-text">transitorios</strong> (red caida, rate limit, timeout) y <strong class="text-agent-text">permanentes</strong> (archivo no existe, permisos insuficientes, parametros invalidos).
+    </p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+        <p class="text-agent-accent font-bold text-sm mb-2">&#x1F504; Errores transitorios (reintentar)</p>
+        <ul class="space-y-1 text-xs text-agent-muted">
+          <li>&#x2022; HTTP 429: Rate limit exceeded</li>
+          <li>&#x2022; HTTP 503: Service temporarily unavailable</li>
+          <li>&#x2022; Timeout de red</li>
+          <li>&#x2022; Connection reset</li>
+        </ul>
+        <p class="text-xs text-agent-text mt-2">Backoff: 1s &#x2192; 2s &#x2192; 4s (max 3 intentos)</p>
+      </div>
+      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
+        <p class="text-agent-danger font-bold text-sm mb-2">&#x274C; Errores permanentes (no reintentar)</p>
+        <ul class="space-y-1 text-xs text-agent-muted">
+          <li>&#x2022; HTTP 404: Recurso no existe</li>
+          <li>&#x2022; HTTP 403: Permisos insuficientes</li>
+          <li>&#x2022; Parametros invalidos contra schema</li>
+          <li>&#x2022; API key expirada o invalida</li>
+        </ul>
+        <p class="text-xs text-agent-text mt-2">Devolver error al LLM para que se adapte</p>
+      </div>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Reintentar errores permanentes es uno de los bugs mas costosos en agentes. Si un archivo no existe, reintentarlo 3 veces con backoff solo gasta tokens y tiempo sin cambiar el resultado. <strong class="text-agent-text">Siempre clasifica el error antes de decidir si reintentar</strong>. Los errores permanentes deben devolverse al LLM como feedback para que busque una alternativa.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Graceful exit: cuando parar con dignidad</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Cuando un agente alcanza un limite (max iteraciones o token budget), la peor opcion es terminar abruptamente sin explicacion. Un agente profesional hace un <strong class="text-agent-text">graceful exit</strong>: resume lo que logro, lo que falta, y por que se detuvo. Esto le da al usuario (o al sistema orquestador) suficiente contexto para decidir el siguiente paso.
     </p>
     <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Arquitectura completa de memoria</p>
-      {@html `<pre class="code-block text-agent-highlight text-sm">SISTEMA DE MEMORIA
-├── Corta (Context Window) ← Todo cabe aqui para funcionar
-│   ├── System prompt + instrucciones (SIEMPRE presente)
-│   ├── Historial de conversacion actual
-│   ├── Tool results recientes
-│   └── Contexto recuperado de las otras capas
-│
-├── Larga (Persistente) ← Se consulta bajo demanda
-│   ├── Vector DB (Pinecone, Chroma, Weaviate)
-│   │   ├── Documentacion del proyecto (RAG)
-│   │   ├── Base de conocimiento tecnico
-│   │   └── Embeddings de contenido relevante
-│   ├── Key-Value Store (Redis, JSON)
-│   │   ├── Preferencias del usuario
-│   │   ├── Configuraciones del proyecto
-│   │   └── Datos estructurados (stack, deps, etc)
-│   └── Archivos de contexto (CLAUDE.md, README, etc)
-│
-└── Episodica (Experiencias) ← Aprende del pasado
-    ├── Tareas resueltas exitosamente
-    ├── Errores cometidos y como se corrigieron
-    ├── Estrategias que funcionaron
-    ├── Patrones recurrentes detectados
-    └── Decisiones de arquitectura y sus razones</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Que guardar donde</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Tipo de dato</th>
-              <th class="text-left text-agent-text py-2 pr-4">Donde guardar</th>
-              <th class="text-left text-agent-text py-2">Por que</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Estructura del proyecto</td><td class="py-2 pr-4 text-agent-accent">Larga (CLAUDE.md)</td><td class="py-2">Cambia poco, se lee al inicio</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Conversacion actual</td><td class="py-2 pr-4 text-agent-accent">Corta (context)</td><td class="py-2">Solo relevante en esta sesion</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Errores pasados y fixes</td><td class="py-2 pr-4 text-agent-accent">Episodica (MEMORY.md)</td><td class="py-2">Evita repetir los mismos errores</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Documentacion tecnica</td><td class="py-2 pr-4 text-agent-accent">Larga (Vector DB)</td><td class="py-2">Busqueda semantica por relevancia</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Preferencias del usuario</td><td class="py-2 pr-4 text-agent-accent">Larga (Key-Value)</td><td class="py-2">Datos simples, acceso por clave</td></tr>
-            <tr><td class="py-2 pr-4">Tool results detallados</td><td class="py-2 pr-4 text-agent-accent">Corta (comprimible)</td><td class="py-2">Solo necesarios para la tarea actual</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Estrategias de recuperacion</h3>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Keyword Search</p>
-        <p class="text-xs text-agent-muted">Busqueda clasica por palabras exactas. Rapida y predecible. Funciona bien para datos estructurados (nombres de funciones, imports, rutas de archivos).</p>
-        <p class="text-xs text-agent-success mt-2">Pro: Precisa y rapida</p>
-        <p class="text-xs text-agent-danger">Con: No entiende sinonimos</p>
-      </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Semantic Search</p>
-        <p class="text-xs text-agent-muted">Busqueda por significado usando embeddings y vector databases. Encuentra documentos relevantes aunque no usen las mismas palabras exactas.</p>
-        <p class="text-xs text-agent-success mt-2">Pro: Entiende contexto</p>
-        <p class="text-xs text-agent-danger">Con: Mas lenta, requiere infra</p>
-      </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Hybrid Search</p>
-        <p class="text-xs text-agent-muted">Combina keyword + semantic. Usa ambos metodos y fusiona los resultados. Lo mejor de ambos mundos pero mas complejo de implementar.</p>
-        <p class="text-xs text-agent-success mt-2">Pro: Mejor precision total</p>
-        <p class="text-xs text-agent-danger">Con: Mas complejo</p>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El costo de la memoria</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Mas memoria en el contexto = mas tokens = mas dinero. La memoria no es gratis. Cada dato que agregas al context window se procesa en CADA llamada al LLM. Si tu system prompt tiene 5,000 tokens de memoria, esos 5,000 tokens se pagan en cada iteracion del agentic loop. Con 30 iteraciones, son 150,000 tokens solo de memoria.
-    </p>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Garbage collection: cuando olvidar</h3>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      No todo merece ser recordado. Un buen sistema de memoria tambien sabe OLVIDAR:
-    </p>
-    <ul class="space-y-2 text-sm text-agent-muted mb-4">
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> <strong class="text-agent-text">Datos obsoletos:</strong> Si migraste de Flask a FastAPI, la memoria sobre Flask ya no es util. Eliminala.</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> <strong class="text-agent-text">Experiencias contradictorias:</strong> Si una leccion antigua dice "usa Pydantic v1" pero la nueva dice "usa v2", la antigua debe eliminarse.</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> <strong class="text-agent-text">Detalles triviales:</strong> "Lei el archivo README.md" no es una leccion. "El README esta desactualizado, la seccion de deploy es incorrecta" si lo es.</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> <strong class="text-agent-text">TTL (Time-To-Live):</strong> Algunos datos tienen una vida util natural. El estado de un sprint caduca al final del sprint.</li>
-    </ul>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Los agentes en produccion de empresas como Replit y Vercel manejan la memoria con un sistema de 3 niveles: (1) cache caliente en el context window (ultimos 10 mensajes + system prompt), (2) cache templado en una DB relacional (sesiones recientes, busquedas frecuentes), y (3) almacenamiento frio en vector DB (toda la documentacion y experiencias). Cuando llega una tarea, el sistema trae solo lo relevante del nivel 2 y 3 al nivel 1. Asi optimizan costo Y relevancia.</p>
-    </div>
-
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4">
-      <p class="text-agent-text font-bold text-sm mb-2">El flujo de recuperacion completo</p>
-      <p class="text-sm text-agent-muted">Cuando llega una nueva tarea: (1) el agente busca en memoria episodica si resolvio algo similar antes, (2) recupera documentacion relevante via RAG (memoria larga), (3) carga preferencias del usuario (key-value), y (4) agrega todo al context window (memoria corta) junto con la tarea actual. Este flujo es lo que permite al agente "recordar" sin tener memoria real: simplemente trae la informacion correcta al lugar correcto en el momento correcto.</p>
+      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Ejemplo de graceful exit</p>
+      {@html `<pre class="code-block text-xs">## Salida del agente (max iteraciones alcanzado):
+{
+  "status": "partial",
+  "reason": "Max iteraciones (25) alcanzado",
+  "completed": [
+    "Identifique el bug en src/auth/login.py linea 42",
+    "Corregi la validacion del JWT token",
+    "2 de 4 tests pasan ahora"
+  ],
+  "pending": [
+    "test_login_expired_token aun falla",
+    "test_login_invalid_signature aun falla"
+  ],
+  "recommendation": "Reiniciar con contexto del error de los 2 tests restantes"
+}</pre>`}
     </div>
   </section>
 
-  <!-- InteractiveFlow -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Interactive Flow                                    -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-2xl font-bold text-agent-text">Diagrama: Como Piensan los Agentes</h2>
+      <h2 class="text-2xl font-bold text-agent-text">Diagrama Interactivo</h2>
       {#if !showFlow}
         <button onclick={() => showFlow = true} class="btn-primary text-xs">
-          Explorar estrategias
+          Explorar arquitectura
         </button>
       {/if}
     </div>
@@ -866,17 +984,19 @@ response = client.messages.create(
       <InteractiveFlow
         nodes={flowNodes}
         edges={flowEdges}
-        title="Estrategias de Razonamiento: CoT vs ToT vs ReAct"
+        title="Arquitectura del Agent SDK: ciclo de 4 fases"
         challenges={flowChallenges}
         onComplete={handleFlowComplete}
       />
     {/if}
   </section>
 
-  <!-- Quiz -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- Quiz                                                -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-2xl font-bold text-agent-text">Quiz: Memoria, Planning y Razonamiento</h2>
+      <h2 class="text-2xl font-bold text-agent-text">Quiz: Construir tu Agente</h2>
       {#if !showQuiz}
         <button onclick={() => showQuiz = true} class="btn-primary text-xs">
           Iniciar quiz
@@ -884,7 +1004,6 @@ response = client.messages.create(
       {/if}
     </div>
     {#if showQuiz}
-      <p class="text-sm text-agent-warning mb-3">Necesitas 80%+ para desbloquear el badge "Arquitecto Mental"</p>
       <Quiz questions={quizQuestions} onComplete={handleQuizComplete} />
     {/if}
   </section>
@@ -892,9 +1011,9 @@ response = client.messages.create(
   <!-- Completion -->
   {#if completed}
     <div class="card bg-agent-success/10 border-agent-success/30 text-center mb-8 fade-in">
-      <span class="text-4xl">🧠</span>
+      <span class="text-4xl">&#x26A1;</span>
       <h3 class="text-xl font-bold text-agent-success mt-2">Modulo completado!</h3>
-      <p class="text-agent-muted mt-1">Ahora entiendes como los agentes piensan, recuerdan y razonan.</p>
+      <p class="text-agent-muted mt-1">Ya conoces las herramientas para construir agentes: Agent SDK, MCP servers, y los patrones de produccion.</p>
     </div>
   {/if}
 

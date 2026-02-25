@@ -1,13 +1,14 @@
 <script lang="ts">
   import { courseStore, allBadges } from '$lib/stores/course';
   import { modules } from '$lib/data/modules';
-  import Timer from '$lib/components/Timer.svelte';
-  import BranchingScenario from '$lib/components/BranchingScenario.svelte';
+  import Quiz from '$lib/components/Quiz.svelte';
+  import InteractiveFlow from '$lib/components/InteractiveFlow.svelte';
   import ModuleNav from '$lib/components/ModuleNav.svelte';
   import SourcesSection from '$lib/components/SourcesSection.svelte';
   import VocabularyFloat from '$lib/components/VocabularyFloat.svelte';
   import BadgeNotification from '$lib/components/BadgeNotification.svelte';
   import type { Badge } from '$lib/stores/course';
+  import type { Source } from '$lib/data/modules';
 
   const MODULE_ID = 11;
   const mod = modules.find(m => m.id === MODULE_ID)!;
@@ -16,198 +17,115 @@
   let showBadge = $state(false);
   let earnedBadge = $state<Badge | null>(null);
 
-  let showScenario = $state(false);
-  let timedOut = $state(false);
+  let showFlow = $state(false);
+  let showQuiz = $state(false);
+  let flowDone = $state(false);
+  let quizDone = $state(false);
 
   courseStore.startModule(MODULE_ID);
 
-  function handleTimeUp() {
-    timedOut = true;
+  function handleFlowComplete(score: number, total: number) {
+    flowDone = true;
   }
 
-  function handleScenarioComplete(score: number, maxScore: number) {
-    let finalScore = score;
-    if (timedOut) {
-      finalScore = Math.max(0, score - 3);
-    }
-    courseStore.completeModule(MODULE_ID, finalScore, maxScore);
+  function handleQuizComplete(score: number, total: number) {
+    quizDone = true;
+    courseStore.completeModule(MODULE_ID, score, total);
     completed = true;
+    const badge = courseStore.unlockBadge('workspace-master');
+    if (badge) {
+      earnedBadge = badge;
+      showBadge = true;
+    }
   }
 
-  // BranchingScenario: Incidente en Produccion
-  const scenarioNodes: Record<string, any> = {
-    start: {
-      id: 'start',
-      narrative: 'Son las 3 AM. Tu telefono suena con una alerta critica.\n\nTu sistema multi-agente que procesa tickets de soporte al cliente esta fallando. El dashboard muestra:\n- Costos de tokens: +500% vs el promedio diario\n- Latencia de respuestas: 10x lo normal (de 2s a 20s)\n- 15% de clientes reciben respuestas incoherentes\n- El sistema procesa 500 tickets/hora normalmente\n\nLos costos ya superaron el budget diario en 3 horas.\n\n¿Que investigas PRIMERO?',
-      choices: [
-        { text: 'Los traces del agente para ver que esta haciendo exactamente en cada request', nextId: 'traces', points: 3, feedback: 'Excelente instinto. Los traces te dan la pelicula completa de cada request: que tools llamo, cuantas iteraciones del loop hizo, donde se atasco. Con 500% de costo, algo esta iterando de mas.' },
-        { text: 'Los logs del servidor buscando errores y excepciones', nextId: 'logs', points: 2, feedback: 'Razonable pero no optimo. Los logs te dicen si algo FALLO pero no te explican POR QUE el agente esta gastando 5x. Necesitas traces para ver el comportamiento del agente, no solo errores de infraestructura.' },
-        { text: 'El dashboard de costos para ver que modelo esta consumiendo mas tokens', nextId: 'costs', points: 1, feedback: 'Es informacion util pero superficial. Saber que "el modelo X gasta mucho" no te dice POR QUE. Necesitas ir mas profundo: que HACE el agente con esos tokens.' }
-      ]
+  // InteractiveFlow: Workspace Architecture
+  const flowNodes = [
+    { id: 'terminal', label: 'Terminal Multiplexer', description: 'tmux o zellij como base. Multiples panes para monitorear agentes, tests, logs y git simultaneamente. Las sesiones persisten si se cae la conexion SSH. El multiplexer es tu centro de comando visual para todo lo que corre en la terminal.', icon: '\u{1F5A5}\uFE0F', x: 10, y: 15 },
+    { id: 'claude_session', label: 'Sesion Claude Code', description: 'El agente CLI corriendo en un pane del multiplexer. Lee CLAUDE.md al iniciar, conecta a MCP servers, y usa tools del proyecto. Cada sesion tiene su propio contexto y worktree aislado. Es la unidad base de trabajo.', icon: '\u{1F916}', x: 50, y: 10 },
+    { id: 'dot_claude', label: '.claude/ Config', description: 'El directorio .claude/ en la raiz del proyecto: settings.json (permisos, modelo), agents/ (agentes custom), skills/ (SKILL.md con frontmatter), commands/ (slash commands), rules/ (reglas adicionales). Es el cerebro de configuracion del workspace.', icon: '\u{2699}\uFE0F', x: 90, y: 15 },
+    { id: 'mcp_servers', label: 'MCP Servers', description: 'Servidores MCP configurados en .mcp.json (proyecto) o ~/.claude/settings.json (usuario). Exponen herramientas y datos al agente: Jira, GitHub, bases de datos, filesystem. Son el puente entre Claude Code y tus sistemas externos.', icon: '\u{1F50C}', x: 90, y: 50 },
+    { id: 'worktrees', label: 'Git Worktrees', description: 'Copias de trabajo independientes del mismo repo, cada una en una rama distinta. Cada worktree tiene su propia sesion de Claude Code. No duplican el historial git. Permiten 3-5 features en paralelo sin merge conflicts. Es el secreto de la productividad multi-sesion.', icon: '\u{1F333}', x: 50, y: 50 },
+    { id: 'parallel', label: 'Sesiones Paralelas', description: 'Multiples sesiones de Claude Code corriendo simultaneamente, cada una en su worktree. Patrones: feature+feature, research+implementation, CI watcher+fixer, review+implement. Boris Cherny recomienda 3-5 sesiones; incident.io usa 4-7.', icon: '\u{1F465}', x: 10, y: 50 },
+    { id: 'plugins', label: 'Plugins y Ecosistema', description: 'Extensiones de terceros: compound-engineering (workflows complejos), ContextKit (contexto mejorado), awesome-claude-code (lista curada de MCP servers, hooks, skills). Evalua trust, permisos y sandboxing antes de instalar.', icon: '\u{1F9E9}', x: 50, y: 85 }
+  ];
+
+  const flowEdges = [
+    { from: 'terminal', to: 'claude_session', label: 'ejecuta' },
+    { from: 'claude_session', to: 'dot_claude', label: 'lee config' },
+    { from: 'dot_claude', to: 'mcp_servers', label: 'conecta' },
+    { from: 'worktrees', to: 'claude_session', label: 'aisla contexto' },
+    { from: 'parallel', to: 'worktrees', label: 'usa' },
+    { from: 'parallel', to: 'terminal', label: 'monitorea en' },
+    { from: 'plugins', to: 'mcp_servers', label: 'extiende' },
+    { from: 'plugins', to: 'dot_claude', label: 'configura' }
+  ];
+
+  const flowChallenges = [
+    { question: 'Necesitas que 3 sesiones de Claude Code trabajen en features distintas sin conflictos. Que componente del workspace lo hace posible?', targetNodeId: 'worktrees', hint: 'Piensa en una funcionalidad de git que crea copias de trabajo independientes sin duplicar el repositorio.' },
+    { question: 'Donde configuras los permisos, agentes custom, skills y reglas especificas de tu proyecto para Claude Code?', targetNodeId: 'dot_claude', hint: 'Es un directorio oculto en la raiz del proyecto que contiene toda la configuracion de Claude Code.' },
+    { question: 'Quieres que Claude Code pueda leer tickets de Jira y crear PRs en GitHub. Que componente necesitas configurar?', targetNodeId: 'mcp_servers', hint: 'Es un protocolo que conecta agentes con herramientas y datos externos.' },
+    { question: 'Estas corriendo 5 sesiones de Claude Code y necesitas ver el output de todas simultaneamente. Que herramienta usas como base?', targetNodeId: 'terminal', hint: 'Piensa en una herramienta que divide tu terminal en multiples paneles persistentes.' }
+  ];
+
+  // Quiz questions
+  const quizQuestions = [
+    {
+      question: 'Tu equipo quiere adoptar git worktrees con Claude Code. Un desarrollador pregunta: "por que no simplemente clonar el repo 5 veces?" Cual es la ventaja principal de worktrees sobre multiples clones?',
+      options: [
+        { text: 'Los worktrees son mas rapidos de crear porque no descargan archivos de la red', correct: false, explanation: 'Un clone local (git clone --local) tampoco descarga de la red. La velocidad de creacion no es la diferencia clave.' },
+        { text: 'Los worktrees comparten el mismo repositorio git (.git), lo que significa un solo historial, menos espacio en disco, y que un merge en un worktree se refleja en todos los demas instantaneamente', correct: true, explanation: 'Correcto. Worktrees son "vistas" del mismo repo. Un solo .git/ compartido = un solo historial, una sola fuente de verdad. Multiples clones duplican todo el historial git y no estan sincronizados entre si.' },
+        { text: 'Los worktrees tienen mejor rendimiento de lectura/escritura porque usan symlinks', correct: false, explanation: 'Los worktrees no se basan en symlinks. Usan un directorio de trabajo real con un archivo .git que apunta al repositorio principal.' },
+        { text: 'Los worktrees permiten hacer push directo sin necesidad de remote', correct: false, explanation: 'Tanto worktrees como clones locales pueden pushear a un remote. Esa no es una diferencia entre ambos.' }
+      ],
+      source: 'incident.io - Shipping Faster with Claude Code and Git Worktrees',
+      sourceUrl: 'https://incident.io/blog/shipping-faster-with-claude-code-and-git-worktrees'
     },
-    traces: {
-      id: 'traces',
-      narrative: 'Abres el sistema de traces (OpenTelemetry/LangSmith) y ves algo alarmante:\n\nEl agente de clasificacion de tickets esta entrando en un LOOP. Para ciertos tickets con texto ambiguo, el agente:\n1. Clasifica el ticket como "problema tecnico"\n2. El agente de solucion dice "necesito mas contexto"\n3. Vuelve al clasificador, que re-clasifica como "facturacion"\n4. El agente de facturacion dice "esto es tecnico, no es mio"\n5. GOTO paso 1\n\nEste loop se repite 20-50 veces antes de timeout, generando enormes costos.\n\n¿Como resuelves el loop?',
-      choices: [
-        { text: 'Implementar un circuit breaker: maximo 3 reclasificaciones por ticket. Si se excede, escalar a humano.', nextId: 'circuit_breaker', points: 3, feedback: 'Perfecto. El circuit breaker es el patron correcto aqui: detectar el loop (max iterations), cortar la ejecucion, y tener un fallback (escalacion humana). Simple, efectivo, y robusto.' },
-        { text: 'Mejorar el prompt del clasificador para que sea mas preciso con tickets ambiguos', nextId: 'prompt_fix', points: 1, feedback: 'Puede ayudar a largo plazo, pero no resuelve el incidente AHORA. Mientras ajustas prompts, los loops siguen corriendo y quemando dinero. Necesitas una solucion inmediata.' },
-        { text: 'Agregar un timeout global de 30 segundos por ticket', nextId: 'timeout', points: 2, feedback: 'Reduce el dano pero no resuelve el problema de raiz. Con timeout de 30s, el loop sigue corriendo y gastando tokens, solo que por menos tiempo. Un circuit breaker es mas quirurgico.' }
-      ]
+    {
+      question: 'Segun el caso de incident.io, cual fue el factor MAS critico para que su adopcion de multiples agentes concurrentes funcionara?',
+      options: [
+        { text: 'Usar el modelo mas potente disponible (Opus) para todas las sesiones', correct: false, explanation: 'incident.io no menciona que el modelo sea el factor critico. Un modelo potente ayuda pero no resuelve cuellos de botella de tooling.' },
+        { text: '"Fast tooling is a prerequisite" - CI rapido y herramientas que no hagan esperar al agente son condicion necesaria', correct: true, explanation: 'Exacto. incident.io enfatiza que si tu CI tarda 20 minutos, da igual cuantos agentes tengas: todos estaran esperando. El tooling rapido (CI en minutos, tests rapidos, deploys agiles) es lo que desbloquea el valor de multiples agentes.' },
+        { text: 'Tener un CLAUDE.md extremadamente detallado de 5000+ palabras', correct: false, explanation: 'Un CLAUDE.md detallado ayuda, pero incident.io destaca fast tooling como prerequisito. Un CLAUDE.md perfecto con CI lento sigue siendo ineficiente.' },
+        { text: 'Contratar desarrolladores senior que supervisen cada sesion', correct: false, explanation: 'incident.io menciona que nuevos empleados ("new hires") estaban shipping code on day 2 usando Claude Code. No requiere supervision senior constante.' }
+      ],
+      source: 'incident.io - Shipping Faster with Claude Code and Git Worktrees',
+      sourceUrl: 'https://incident.io/blog/shipping-faster-with-claude-code-and-git-worktrees'
     },
-    logs: {
-      id: 'logs',
-      narrative: 'Los logs del servidor muestran muchos timeouts y retries, pero no errores de aplicacion per se. El sistema "funciona" pero extremadamente lento.\n\nTe das cuenta de que necesitas ver el COMPORTAMIENTO del agente, no solo errores de infraestructura. Abres los traces y descubres el problema: un loop infinito entre el clasificador y los agentes de solucion.\n\nPara ciertos tickets ambiguos, el clasificador y los workers se pasan el ticket de vuelta en un ping-pong interminable.\n\n¿Como lo resuelves?',
-      choices: [
-        { text: 'Agregar un circuit breaker con maximo 3 iteraciones de reclasificacion', nextId: 'circuit_breaker', points: 3, feedback: 'El circuit breaker es la solucion correcta. Maximo N intentos, despues un fallback predefinido (escalar a humano). Corta el loop sin necesidad de arreglar la ambigüedad del ticket.' },
-        { text: 'Implementar una cola de "tickets problematicos" que se revisan manualmente', nextId: 'manual_queue', points: 2, feedback: 'Funciona como solucion temporal, pero sin un circuit breaker, el loop sigue corriendo hasta timeout. Necesitas CORTAR el loop primero, DESPUES enviar a la cola manual.' }
-      ]
+    {
+      question: 'Estas configurando el directorio .claude/ para un nuevo proyecto. Cual de estas estructuras es CORRECTA segun la documentacion oficial?',
+      options: [
+        { text: '.claude/config.yml con agents, skills, y rules como secciones YAML', correct: false, explanation: 'Claude Code no usa YAML para configuracion. El formato es JSON (settings.json) y Markdown (SKILL.md, agentes).' },
+        { text: '.claude/settings.json para permisos + agents/ para agentes custom + skills/ con SKILL.md + commands/ para slash commands', correct: true, explanation: 'Correcto. settings.json define permisos y modelo. agents/ contiene archivos .md que definen agentes con personalidad e instrucciones. skills/ tiene SKILL.md con frontmatter YAML para contexto dinamico. commands/ tiene archivos .md para slash commands custom.' },
+        { text: '.claude/claude.config.js exportando un objeto de configuracion como en ESLint', correct: false, explanation: 'Claude Code no usa archivos JavaScript para configuracion. Usa JSON para settings y Markdown para agentes, skills y commands.' },
+        { text: '.claude/agents.json con un array de agentes, cada uno con tools y model definidos', correct: false, explanation: 'Los agentes se definen como archivos Markdown individuales en .claude/agents/, no como un JSON centralizado. Cada archivo .md es un agente.' }
+      ],
+      source: 'Claude Code - Settings',
+      sourceUrl: 'https://code.claude.com/docs/en/settings'
     },
-    costs: {
-      id: 'costs',
-      narrative: 'El dashboard muestra que el 80% del gasto proviene del modelo del agente clasificador. Esta haciendo 10x mas llamadas de lo normal.\n\nRevisas los traces y descubres un loop: tickets ambiguos rebotan entre el clasificador y los agentes de solucion indefinidamente.\n\n¿Como resuelves esto?',
-      choices: [
-        { text: 'Implementar un circuit breaker que corte el loop despues de 3 reclasificaciones', nextId: 'circuit_breaker', points: 3, feedback: 'Correcto. El circuit breaker es la solucion clasica para loops en sistemas distribuidos. Simple, efectivo, y predecible.' },
-        { text: 'Cambiar a un modelo mas barato para el clasificador', nextId: 'cheap_model', points: 1, feedback: 'Reduce el costo por iteracion pero el loop sigue. Si un ticket genera 50 iteraciones, un modelo barato sigue siendo 50x mas caro de lo necesario. Arregla el loop, no el modelo.' }
-      ]
+    {
+      question: 'Estas trabajando en una feature con Claude Code en un worktree. Simultaneamente quieres que otra sesion investigue un approach alternativo sin escribir codigo. Cual es el patron correcto?',
+      options: [
+        { text: 'Abrir otra terminal y correr claude en el mismo directorio con --read-only', correct: false, explanation: 'No existe un flag --read-only. Ademas, dos sesiones en el mismo directorio pueden generar conflictos de archivos.' },
+        { text: 'Crear un segundo worktree, iniciar una sesion de Claude Code ahi, y usar Shift+Tab (Plan Mode) para que solo lea y analice sin modificar archivos', correct: true, explanation: 'Correcto. Un worktree separado aisla el filesystem. Plan Mode (Shift+Tab) le dice a Claude Code que solo lea, analice y planifique sin ejecutar cambios. Es el patron research+implementation: una sesion investiga, otra implementa.' },
+        { text: 'Usar claude --agent researcher que automaticamente opera en modo read-only', correct: false, explanation: 'No existe un flag --agent. Los agentes custom se configuran en .claude/agents/ y se invocan desde dentro de la sesion, no via CLI.' },
+        { text: 'Pedir en el primer prompt "no modifiques ningun archivo, solo investiga" y confiar en que lo cumpla', correct: false, explanation: 'Depender de una instruccion en el prompt es fragil. Plan Mode es un mecanismo formal que restringe las herramientas disponibles. Es mas confiable que una instruccion de texto.' }
+      ],
+      source: 'Boris Cherny - 22 Tips for Claude Code',
+      sourceUrl: 'https://www.builder.io/blog/claude-code-tips'
     },
-    circuit_breaker: {
-      id: 'circuit_breaker',
-      narrative: 'Implementas el circuit breaker: maximo 3 reclasificaciones por ticket. Si se excede, el ticket se marca como "ambiguo" y se escala a un humano.\n\nLos loops se detienen inmediatamente. Los costos bajan al nivel normal en 15 minutos.\n\nAhora necesitas el post-mortem. ¿Que medida preventiva implementas para que esto NO vuelva a pasar?',
-      choices: [
-        { text: 'Alertas automaticas cuando los costos superan el 150% del promedio + dashboards de loop detection + token budgets por ticket', nextId: 'observability', points: 3, feedback: 'Completo. Alertas tempranas (150%, no 500%) + visibilidad (dashboards) + limites duros (budgets) = las tres capas de proteccion contra cost overrun.' },
-        { text: 'Solo agregar el budget de tokens por ticket, eso es suficiente', nextId: 'budget_only', points: 1, feedback: 'El budget corta el gasto pero no te AVISA temprano. Sin alertas, no te enteras hasta que el budget se agota y los tickets empiezan a fallar. Necesitas deteccion temprana.' },
-        { text: 'Mejorar los prompts de todos los agentes para evitar ambigüedad', nextId: 'prompt_improvement', points: 2, feedback: 'Buena mejora a largo plazo pero no es una medida PREVENTIVA. Los prompts mejorados reducen la probabilidad del loop pero no lo eliminan. Necesitas alertas y budgets como red de seguridad.' }
-      ]
-    },
-    prompt_fix: {
-      id: 'prompt_fix',
-      narrative: 'Empiezas a iterar sobre el prompt del clasificador. Mientras tanto, los loops siguen corriendo.\n\nEn los 45 minutos que tardas en probar y deployar el nuevo prompt, el sistema gasta $2,400 adicionales en tokens.\n\nEl nuevo prompt mejora la clasificacion un 20%, pero tickets ambiguos SIGUEN generando loops.\n\n¿Que implementas ahora?',
-      choices: [
-        { text: 'Un circuit breaker con maximo 3 reclasificaciones + alerta automatica cuando se activa', nextId: 'observability', points: 3, feedback: 'Ahora si. El circuit breaker resuelve el problema de raiz (loops) y la alerta te avisa cuando hay tickets ambiguos que necesitan atencion humana.' },
-        { text: 'Seguir iterando el prompt hasta que la clasificacion sea 100% precisa', nextId: 'outcome_poor', points: 0, feedback: 'La clasificacion nunca sera 100% con lenguaje natural. Los tickets ambiguos siempre existiran. Necesitas un mecanismo de fallback, no prompts perfectos.' }
-      ]
-    },
-    timeout: {
-      id: 'timeout',
-      narrative: 'El timeout de 30 segundos ayuda: los loops ya no duran minutos. Pero en 30 segundos, el loop alcanza 8-12 iteraciones. Los costos bajan un 60% pero siguen elevados.\n\nAdemas, los clientes con tickets ambiguos reciben respuestas de timeout en vez de ayuda real.\n\n¿Que ajustas?',
-      choices: [
-        { text: 'Reemplazar el timeout por un circuit breaker: maximo 3 reclasificaciones, despues escalar a humano con contexto del intento', nextId: 'observability', points: 3, feedback: 'Mucho mejor. El circuit breaker es mas quirurgico que un timeout: corta el LOOP especificamente, no todo el procesamiento. Y la escalacion humana asegura que el cliente reciba ayuda.' },
-        { text: 'Reducir el timeout a 10 segundos', nextId: 'outcome_poor', points: 1, feedback: 'Con 10 segundos, muchos tickets LEGITIMOS no se procesan a tiempo. Estas penalizando a todos los clientes por un problema de loop. El circuit breaker es mas preciso.' }
-      ]
-    },
-    cheap_model: {
-      id: 'cheap_model',
-      narrative: 'Cambias al modelo barato. Los costos por iteracion bajan un 70%, pero el modelo barato es PEOR clasificando, asi que los loops se vuelven mas frecuentes.\n\nTerminas gastando lo mismo porque hay mas loops aunque cada iteracion es mas barata.\n\n¿Que haces ahora?',
-      choices: [
-        { text: 'Implementar circuit breaker + volver al modelo original que clasifica mejor', nextId: 'circuit_breaker', points: 3, feedback: 'Correcto. Mejor modelo = menos loops. Circuit breaker = los loops que queden se cortan rapido. El modelo barato EMPEORO el problema.' },
-        { text: 'Buscar un modelo intermedio en precio y calidad', nextId: 'outcome_poor', points: 1, feedback: 'Optimizar el modelo no resuelve el problema de diseño. El LOOP es el bug, no el modelo. Arregla la arquitectura primero, despues optimiza costos.' }
-      ]
-    },
-    manual_queue: {
-      id: 'manual_queue',
-      narrative: 'Creas una cola manual para tickets problematicos. Pero el agente sigue iterando en loop ANTES de enviar a la cola. Solo cuando alcanza el timeout se redirige.\n\n¿Que falta en tu solucion?',
-      choices: [
-        { text: 'Un circuit breaker que corte el loop ANTES del timeout y envie directamente a la cola manual', nextId: 'observability', points: 3, feedback: 'Exacto. El circuit breaker detecta el loop temprano (despues de 3 intentos, no 50) y redirige inmediatamente a la cola. Ahorro de tokens + mejor experiencia.' },
-        { text: 'Reducir el timeout para que llegue mas rapido a la cola', nextId: 'outcome_decent', points: 1, feedback: 'Funciona pero es un hack. Un timeout bajo afecta todos los tickets, no solo los que estan en loop. El circuit breaker es especifico al problema.' }
-      ]
-    },
-    observability: {
-      id: 'observability',
-      narrative: 'Implementas el paquete completo de observabilidad:\n\n1. Circuit breaker: max 3 reclasificaciones, despues escalacion humana\n2. Alertas: notificacion cuando costos superan 150% del promedio\n3. Dashboard: visualizacion en tiempo real de loops, latencias, y costos\n4. Token budget: maximo de tokens por ticket individual\n\nUltima pregunta: ¿como comunicas este incidente al equipo?',
-      choices: [
-        { text: 'Post-mortem formal: timeline, root cause (loop por tickets ambiguos sin circuit breaker), impacto ($X en costos), acciones tomadas, y medidas preventivas implementadas', nextId: 'outcome_excellent', points: 3, feedback: 'Perfecto. Un post-mortem blameless documenta QUE paso, POR QUE, y COMO se previene en el futuro. Es la practica de oro en ingenieria de confiabilidad.' },
-        { text: 'Un mensaje en Slack diciendo "ya se arreglo el problema de costos"', nextId: 'outcome_good', points: 1, feedback: 'Comunicar que se resolvio es lo minimo. Pero sin un post-mortem formal, las lecciones se pierden y el mismo patron podria repetirse en otro componente del sistema.' }
-      ]
-    },
-    prompt_improvement: {
-      id: 'prompt_improvement',
-      narrative: 'Mejoras los prompts y la calidad de clasificacion sube un 25%. Pero siguen existiendo tickets ambiguos que generan loops.\n\nSin alertas tempranas, el proximo incidente tardara en detectarse tanto como este.\n\n¿Que agregas?',
-      choices: [
-        { text: 'Alertas automaticas a 150% del promedio + dashboards de observabilidad + post-mortem formal', nextId: 'outcome_good', points: 3, feedback: 'Ahora tienes el paquete completo: prevencion (circuit breaker) + mejora (prompts) + deteccion (alertas) + visibilidad (dashboard) + aprendizaje (post-mortem).' },
-        { text: 'Confiar en que los prompts mejorados previenen el problema', nextId: 'outcome_poor', points: 0, feedback: 'Los prompts NUNCA son suficientes como unica defensa. La ambigüedad en lenguaje natural es inevitable. Necesitas defensas programaticas.' }
-      ]
-    },
-    budget_only: {
-      id: 'budget_only',
-      narrative: 'Implementas un budget de tokens por ticket. Los loops se cortan cuando agotan el budget.\n\nPero sin alertas, el equipo no se entera de que hay tickets fallando por budget agotado hasta que los clientes se quejan 3 horas despues.\n\n¿Que agregas?',
-      choices: [
-        { text: 'Alertas tempranas (150% del promedio) + dashboard de tickets cortados por budget', nextId: 'outcome_good', points: 3, feedback: 'Bien. Budget + alertas + dashboard = las tres capas minimas. El budget corta el dano, la alerta te avisa, el dashboard te da visibilidad.' },
-        { text: 'Solo revisar el dashboard manualmente cada mañana', nextId: 'outcome_decent', points: 1, feedback: 'La revision manual es lenta e inconsistente. A las 3 AM nadie revisa dashboards. Las alertas AUTOMATICAS son innegociables para sistemas en produccion.' }
-      ]
-    },
-    outcome_excellent: {
-      id: 'outcome_excellent',
-      narrative: '',
-      outcome: {
-        title: 'Ingeniero de Produccion Experto',
-        description: 'Diagnosticaste rapidamente el loop, implementaste un circuit breaker, configuraste observabilidad completa, y documentaste todo en un post-mortem. Tu sistema ahora es mas resiliente que antes del incidente.',
-        score: 15,
-        maxScore: 15,
-        grade: 'excellent',
-        lessons: [
-          'Los TRACES son tu mejor amigo para diagnosticar problemas de agentes. Los logs te dicen QUE fallo, los traces te dicen POR QUE.',
-          'Circuit breakers son OBLIGATORIOS en cualquier sistema multi-agente. Los loops son inevitables.',
-          'Observabilidad = Logs + Metricas + Traces. Las tres juntas, no una sola.',
-          'Token budgets por request evitan cost overruns catastroficos.',
-          'Post-mortems blameless son la practica de oro para aprender de incidentes.'
-        ]
-      }
-    },
-    outcome_good: {
-      id: 'outcome_good',
-      narrative: '',
-      outcome: {
-        title: 'Buena Respuesta al Incidente',
-        description: 'Resolviste el problema e implementaste mejoras. Algunos pasos podrian haberse optimizado pero el resultado final es un sistema mas robusto.',
-        score: 10,
-        maxScore: 15,
-        grade: 'good',
-        lessons: [
-          'Ante un incidente de costos, investiga el COMPORTAMIENTO del agente (traces), no solo metricas superficiales.',
-          'Circuit breakers cortan loops. Timeouts son el plan B, no el plan A.',
-          'Las alertas automaticas son mas confiables que la revision manual.',
-          'Mejoras de prompts son utiles pero NUNCA deben ser tu unica defensa.',
-          'Documenta incidentes formalmente: las lecciones no documentadas se olvidan.'
-        ]
-      }
-    },
-    outcome_decent: {
-      id: 'outcome_decent',
-      narrative: '',
-      outcome: {
-        title: 'Resolucion Parcial',
-        description: 'Resolviste el incidente inmediato pero te faltan medidas preventivas robustas. El proximo incidente similar podria tardar en detectarse.',
-        score: 6,
-        maxScore: 15,
-        grade: 'needs-work',
-        lessons: [
-          'Los traces > logs para diagnosticar problemas de agentes.',
-          'Circuit breakers son obligatorios en sistemas multi-agente.',
-          'La observabilidad no es opcional: alertas + dashboards + budgets como minimo.',
-          'Los hacks (timeouts cortos, modelos baratos) no resuelven problemas de diseño.',
-          'Un post-mortem formal previene la repeticion del mismo error.'
-        ]
-      }
-    },
-    outcome_poor: {
-      id: 'outcome_poor',
-      narrative: '',
-      outcome: {
-        title: 'Resolucion Insuficiente',
-        description: 'El incidente se prolongo mas de lo necesario y las medidas tomadas no previenen recurrencia. En produccion, esto genera perdida de confianza del equipo y de los clientes.',
-        score: 3,
-        maxScore: 15,
-        grade: 'critical',
-        lessons: [
-          'NUNCA dependas solo de prompts para prevenir problemas sistematicos. Los prompts son sugerencias, no garantias.',
-          'Los loops en sistemas multi-agente son INEVITABLES. Disena para ellos con circuit breakers.',
-          'La observabilidad (traces + metricas + alertas) es tan importante como el codigo del agente.',
-          'Optimizar costos (modelo barato) no resuelve bugs de diseño (loops).',
-          'Cada minuto sin actuar en un incidente de produccion multiplica el impacto.'
-        ]
-      }
+    {
+      question: 'Quieres instalar un plugin de terceros para Claude Code que encontraste en awesome-claude-code. Cual es la consideracion de seguridad MAS importante?',
+      options: [
+        { text: 'Verificar que el plugin tenga mas de 100 estrellas en GitHub', correct: false, explanation: 'Las estrellas no garantizan seguridad. Un repo popular puede tener vulnerabilidades, y un repo nuevo puede ser seguro. Las estrellas miden popularidad, no seguridad.' },
+        { text: 'Revisar que herramientas y permisos requiere el plugin: MCP servers tienen acceso a filesystem, red, y APIs. Un MCP server malicioso podria leer archivos sensibles o enviar datos a un servidor externo', correct: true, explanation: 'Correcto. Los MCP servers corren con los permisos de tu usuario. Un MCP server con acceso a filesystem puede leer .env, SSH keys, y cualquier archivo. Uno con acceso a red puede exfiltrar datos. Siempre revisa el codigo fuente, los permisos que pide, y usa sandboxing cuando sea posible.' },
+        { text: 'Asegurarse de que el plugin es compatible con la version actual de Claude Code', correct: false, explanation: 'La compatibilidad es importante funcionalmente, pero no es una consideracion de SEGURIDAD. Un plugin compatible pero malicioso sigue siendo peligroso.' },
+        { text: 'Solo instalar plugins que esten en el marketplace oficial de Anthropic', correct: false, explanation: 'No existe un marketplace oficial de Anthropic para plugins de Claude Code (a febrero 2026). Los MCP servers son open source y cualquiera puede crear uno. La responsabilidad de evaluar seguridad es tuya.' }
+      ],
+      source: 'Claude Code - MCP',
+      sourceUrl: 'https://code.claude.com/docs/en/mcp'
     }
-  };
+  ];
 </script>
 
 <svelte:head>
@@ -244,758 +162,782 @@
     </ul>
   </div>
 
-  <!-- THEORY SECTION 1: El Abismo -->
+  <!-- ================================================================== -->
+  <!-- SECTION 1: Terminal Setup (30% of module) -->
+  <!-- ================================================================== -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">El Abismo entre Demo y Produccion</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Terminal Multiplexer: Lo Esencial</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      <strong class="text-agent-highlight">"It works on my laptop"</strong> es la frase mas peligrosa en ingenieria de software. Aplica doblemente para agentes IA. Un agente que funciona perfecto en tu demo con 10 requests puede colapsar con 10,000 requests reales. La distancia entre una demo y un sistema de produccion no es un paso; es un <strong class="text-agent-text">abismo</strong>.
+      Cuando trabajas con multiples sesiones de Claude Code en paralelo, necesitas <strong class="text-agent-highlight">ver todo simultaneamente</strong>: un agente implementando una feature, otro corriendo tests, otro monitoreando git status. Un terminal multiplexer divide tu terminal en paneles independientes y, lo mas importante, las sesiones <strong class="text-agent-text">persisten</strong> aunque cierres la terminal o se caiga la conexion SSH.
     </p>
 
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-6">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Una startup de e-commerce lanzo un agente de atencion al cliente despues de 3 semanas de desarrollo. En la demo al CEO, el agente clasificaba tickets perfectamente, respondia en 2 segundos, y costaba $0.03 por ticket. En produccion, con 2000 tickets/dia de usuarios reales (con typos, emojis, sarcasmo, multiples idiomas, y tickets de 3 paginas), el agente entraba en loops de reclasificacion, la latencia promedio subio a 45 segundos, y la factura del primer dia fue <strong class="text-agent-text">$847</strong> en lugar de los $60 estimados. Tuvieron que apagar el sistema y volver a soporte humano mientras arreglaban los problemas. La leccion: <strong class="text-agent-text">una demo con datos limpios NO es un test de produccion</strong>.</p>
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-accent font-bold mb-1">&#128161; Concepto clave</p>
+      <p class="text-sm text-agent-muted">No necesitas dominar el multiplexer. Solo necesitas saber: crear panes, navegar entre ellos, y hacer detach/attach. El 90% del valor viene de esas 3 acciones. El objetivo es monitorear agentes, no convertirte en experto en tmux.</p>
     </div>
 
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-      <div class="card bg-agent-dark text-center">
-        <span class="text-2xl block mb-1">&#128170;</span>
-        <h3 class="text-agent-danger font-bold text-sm">Fiabilidad</h3>
-        <p class="text-xs text-agent-muted">Los agentes son probabilisticos. El mismo input puede dar diferente output. ¿Como garantizas consistencia? Con retry logic, fallbacks, y validacion de output.</p>
-      </div>
-      <div class="card bg-agent-dark text-center">
-        <span class="text-2xl block mb-1">&#128176;</span>
-        <h3 class="text-agent-danger font-bold text-sm">Costos</h3>
-        <p class="text-xs text-agent-muted">Un loop infinito puede generar $10,000 en tokens en horas. Sin budgets, tu factura es impredecible. Un solo agente mal configurado puede quebrar el presupuesto mensual en un dia.</p>
-      </div>
-      <div class="card bg-agent-dark text-center">
-        <span class="text-2xl block mb-1">&#9889;</span>
-        <h3 class="text-agent-danger font-bold text-sm">Latencia</h3>
-        <p class="text-xs text-agent-muted">Cada tool call es un round trip al LLM. 5 tool calls = 10-20 segundos. ¿Tus usuarios esperan tanto? El 53% abandona si tarda mas de 3 segundos.</p>
-      </div>
-      <div class="card bg-agent-dark text-center">
-        <span class="text-2xl block mb-1">&#128274;</span>
-        <h3 class="text-agent-danger font-bold text-sm">Seguridad</h3>
-        <p class="text-xs text-agent-muted">Prompt injection, data exfiltration, privilege escalation. Los vectores de ataque se multiplican en produccion. Un atacante creativo puede hacer que tu agente revele datos sensibles.</p>
-      </div>
-      <div class="card bg-agent-dark text-center">
-        <span class="text-2xl block mb-1">&#128065;&#65039;</span>
-        <h3 class="text-agent-danger font-bold text-sm">Observabilidad</h3>
-        <p class="text-xs text-agent-muted">Si no puedes ver QUE hace el agente en cada request, no puedes debuggear problemas en produccion. Los agentes son cajas negras por defecto.</p>
-      </div>
-      <div class="card bg-agent-dark text-center">
-        <span class="text-2xl block mb-1">&#128220;</span>
-        <h3 class="text-agent-danger font-bold text-sm">Compliance</h3>
-        <p class="text-xs text-agent-muted">GDPR, SOC2, HIPAA. ¿Tus logs capturan datos de PII? ¿Puedes explicar por que el agente tomo una decision? ¿Puedes demostrar auditoria?</p>
-      </div>
-    </div>
-
-    <!-- The MVP approach -->
-    <h3 class="text-xl font-bold text-agent-text mb-3">El Approach MVP: Produccion Gradual</h3>
+    <!-- tmux essentials -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">tmux: El Clasico en 5 Minutos</h3>
     <p class="text-agent-muted leading-relaxed mb-4">
-      No intentes lanzar un agente completamente autonomo el dia 1. El camino seguro es gradual.
+      tmux organiza tu terminal en tres niveles: <strong class="text-agent-text">sessions</strong> (contenedores independientes), <strong class="text-agent-text">windows</strong> (pestanas dentro de una session), y <strong class="text-agent-text">panes</strong> (divisiones de una window). Para trabajo con agentes, los panes son lo que mas usaras. Todos los comandos empiezan con el prefix <strong class="text-agent-highlight">Ctrl+B</strong>.
     </p>
 
-    <div class="space-y-3 mb-6">
-      <div class="flex items-center gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border/50">
-        <span class="text-agent-accent font-bold text-sm w-14">Fase 1</span>
-        <div>
-          <p class="text-sm text-agent-text font-bold">Human-in-the-loop obligatorio</p>
-          <p class="text-xs text-agent-muted">El agente sugiere, el humano aprueba. TODA accion pasa por un humano. Esto te da data sobre que tan bueno es el agente sin riesgo.</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border/50">
-        <span class="text-agent-accent font-bold text-sm w-14">Fase 2</span>
-        <div>
-          <p class="text-sm text-agent-text font-bold">Autonomia para tareas de bajo riesgo</p>
-          <p class="text-xs text-agent-muted">Las tareas simples (clasificar ticket, generar draft de respuesta) se ejecutan sin aprobacion. Las complejas (devolver dinero, escalar a manager) siguen con aprobacion.</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border/50">
-        <span class="text-agent-accent font-bold text-sm w-14">Fase 3</span>
-        <div>
-          <p class="text-sm text-agent-text font-bold">Autonomia con guardrails</p>
-          <p class="text-xs text-agent-muted">El agente ejecuta la mayoria de acciones autonomamente pero tiene circuit breakers, token budgets, y escalacion automatica para edge cases.</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border/50">
-        <span class="text-agent-accent font-bold text-sm w-14">Fase 4</span>
-        <div>
-          <p class="text-sm text-agent-text font-bold">Autonomia supervisada</p>
-          <p class="text-xs text-agent-muted">El agente opera completamente autonomo. Un dashboard muestra metricas en tiempo real. Las alertas se disparan si algo sale de parametros. Revision humana semanal de samples aleatorios.</p>
-        </div>
-      </div>
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent font-bold">Comando</th>
+            <th class="text-left py-2 px-3 text-agent-text font-bold">Accion</th>
+            <th class="text-left py-2 px-3 text-agent-text font-bold">Cuando usarlo</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-highlight font-mono">Ctrl+B %</td>
+            <td class="py-2 px-3">Split vertical</td>
+            <td class="py-2 px-3">Agente izquierda, tests derecha</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-highlight font-mono">Ctrl+B "</td>
+            <td class="py-2 px-3">Split horizontal</td>
+            <td class="py-2 px-3">Git status debajo del agente</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-highlight font-mono">Ctrl+B c</td>
+            <td class="py-2 px-3">Nueva window</td>
+            <td class="py-2 px-3">Segundo worktree en otra pestana</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-highlight font-mono">Ctrl+B flecha</td>
+            <td class="py-2 px-3">Navegar panes</td>
+            <td class="py-2 px-3">Cambiar entre agentes</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-highlight font-mono">Ctrl+B d</td>
+            <td class="py-2 px-3">Detach</td>
+            <td class="py-2 px-3">Desconectarte sin matar sesiones</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-3 text-agent-highlight font-mono">tmux attach -t 0</td>
+            <td class="py-2 px-3">Reconectar</td>
+            <td class="py-2 px-3">Volver a tu workspace despues de un break</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Deployar un agente a produccion con el mismo rigor que una demo. "Funciono en 20 tests" NO es suficiente. Produccion es <strong class="text-agent-text">datos sucios, volumen alto, usuarios adversariales, fallos de red, providers caidos, y las 3 AM</strong>. Si no has testeado para cada uno de esos escenarios, no estas listo para produccion.</p>
-    </div>
-  </section>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      El layout recomendado para trabajo con agentes:
+    </p>
 
-  <!-- THEORY SECTION 2: Observabilidad -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">Observabilidad: Los 3 Pilares</h2>
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># Crear una sesion y configurar el layout
+tmux new-session -s agent-work
+
+# Split: panel principal (60%) + panel derecho (40%)
+Ctrl+B %
+
+# En el panel derecho, split horizontal para tests y git
+Ctrl+B "
+
+# Resultado:
+# +-------------------------------+-------------------+
+# |                               |    tests/logs     |
+# |   Claude Code (agente)        +-------------------+
+# |   (panel principal 60%)       |   git status      |
+# |                               |   (panel 40%)     |
+# +-------------------------------+-------------------+</pre>`}
+    </div>
+
+    <!-- zellij -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">zellij: La Alternativa Moderna</h3>
     <p class="text-agent-muted leading-relaxed mb-4">
-      No puedes arreglar lo que no puedes ver. La observabilidad de agentes se basa en tres pilares complementarios. Necesitas los TRES, no uno solo. Y hay una diferencia critica con observabilidad tradicional: los agentes tienen <strong class="text-agent-highlight">comportamiento no-deterministico</strong>. El mismo input puede generar diferentes cadenas de tool calls.
+      zellij es un multiplexer escrito en Rust que destaca por tres cosas: <strong class="text-agent-text">floating panes</strong> (ventanas emergentes sobre el layout), <strong class="text-agent-text">layouts declarativos</strong> en formato KDL, y una UX que muestra los keybindings en pantalla. Instalacion: <span class="text-agent-highlight font-mono">cargo install zellij</span> o <span class="text-agent-highlight font-mono">brew install zellij</span>.
+    </p>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-success font-mono whitespace-pre-wrap">// ~/.config/zellij/layouts/agent-workspace.kdl
+layout {
+    pane size=1 borderless=true {
+        plugin location="tab-bar"
+    }
+    pane split_direction="vertical" {
+        pane size="60%" name="Claude Code" focus=true
+        pane size="40%" {
+            pane size="50%" name="Tests"
+            pane size="50%" name="Git/Logs"
+        }
+    }
+    pane size=2 borderless=true {
+        plugin location="status-bar"
+    }
+}
+
+// Levantar: zellij --layout agent-workspace</pre>`}
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La ventaja de zellij para multi-agente: sus floating panes te permiten abrir una terminal temporal encima de tu layout (con <strong class="text-agent-highlight">Ctrl+P w</strong>) para ejecutar un comando rapido sin reorganizar nada. Cuando terminas, cierras el floating pane y tu layout sigue intacto.
     </p>
 
     <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-6">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">La observabilidad para agentes es diferente de la observabilidad para microservicios. En microservicios, si el servicio A recibe input X, siempre produce output Y (determinismo). Con agentes, el mismo input puede producir <strong class="text-agent-text">diferentes secuencias de tool calls, diferentes razonamientos, y diferentes outputs</strong>. Esto hace que los traces sean MUCHO mas valiosos que los logs: necesitas ver la "pelicula completa" de cada request, no solo el resultado final.</p>
-    </div>
-
-    <div class="space-y-6 mb-6">
-      <!-- Pilar 1: Logs -->
-      <div class="card border-l-4 border-l-agent-accent">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-2xl">&#128220;</span>
-          <h3 class="text-agent-text font-bold">Pilar 1: Logs (Que HIZO el agente)</h3>
-        </div>
-        <p class="text-sm text-agent-muted mb-3">Logging estructurado de cada accion del agente: que herramienta llamo, con que parametros, que resultado obtuvo, que decidio hacer despues. El formato DEBE ser JSON estructurado, no texto plano.</p>
-
-        <p class="text-sm text-agent-muted mb-2"><strong class="text-agent-text">Que logear para agentes:</strong></p>
-        <ul class="space-y-1 text-xs text-agent-muted mb-3">
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Cada tool call: nombre, parametros, resultado, duracion</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Cada decision del agente: "decidi usar tool X porque..."</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Tokens consumidos en cada paso (input + output)</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>trace_id para correlacionar logs de un mismo request</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Nivel de log: INFO para acciones normales, WARN para retries, ERROR para fallas</li>
-        </ul>
-
-        <div class="bg-agent-darker rounded-lg p-3">
-          {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">{
-  "timestamp": "2026-02-16T03:15:42Z",
-  "level": "INFO",
-  "trace_id": "tr-abc123",
-  "agent": "ticket-classifier",
-  "action": "tool_call",
-  "tool": "classify_ticket",
-  "input": {"ticket_id": "TK-4521", "text_preview": "mi pago no..."},
-  "output": {"category": "billing", "confidence": 0.73},
-  "tokens_used": {"input": 245, "output": 97},
-  "latency_ms": 1250,
-  "iteration": 1,
-  "max_iterations": 5
-}</pre>`}
-        </div>
-        <p class="text-xs text-agent-muted mt-2">El <strong class="text-agent-text">trace_id</strong> es critico: te permite seguir un request a traves de multiples agentes y tool calls. Sin el, correlacionar logs de un sistema multi-agente es imposible.</p>
-      </div>
-
-      <!-- Pilar 2: Metricas -->
-      <div class="card border-l-4 border-l-agent-success">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-2xl">&#128200;</span>
-          <h3 class="text-agent-text font-bold">Pilar 2: Metricas (CUANTO cuesta y tarda)</h3>
-        </div>
-        <p class="text-sm text-agent-muted mb-3">Numeros agregados que mides continuamente. Se visualizan en dashboards y se usan para alertas automaticas. Las metricas te dicen la SALUD del sistema en un vistazo.</p>
-
-        <p class="text-sm text-agent-muted mb-2"><strong class="text-agent-text">Metricas clave para agentes:</strong></p>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Latencia P50</p>
-            <p class="text-sm font-bold text-agent-accent">1.8s</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Latencia P95</p>
-            <p class="text-sm font-bold text-agent-accent">4.2s</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Latencia P99</p>
-            <p class="text-sm font-bold text-agent-warning">12.1s</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Tokens/request</p>
-            <p class="text-sm font-bold text-agent-accent">1,847</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Tasa exito</p>
-            <p class="text-sm font-bold text-agent-success">97.3%</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Costo/hora</p>
-            <p class="text-sm font-bold text-agent-warning">$12.40</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Tool calls/req</p>
-            <p class="text-sm font-bold text-agent-accent">3.2</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2 text-center">
-            <p class="text-xs text-agent-muted">Loops detectados</p>
-            <p class="text-sm font-bold text-agent-danger">0.4%</p>
-          </div>
-        </div>
-
-        <p class="text-sm text-agent-muted mb-2"><strong class="text-agent-text">Alerting: cuando despertar a alguien a las 3 AM</strong></p>
-        <ul class="space-y-1 text-xs text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-danger shrink-0">&#128680;</span><strong class="text-agent-text">Critico:</strong> Tasa de exito &lt; 90% por 5 minutos, o costo > 300% del promedio</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">&#9888;&#65039;</span><strong class="text-agent-text">Warning:</strong> Latencia P95 > 10s, o loops > 2% de requests, o costo > 150%</li>
-          <li class="flex items-start gap-2"><span class="text-agent-info shrink-0">&#128308;</span><strong class="text-agent-text">Info:</strong> Token budget alcanzado en > 5% de requests (indica prompts ineficientes)</li>
-        </ul>
-      </div>
-
-      <!-- Pilar 3: Traces -->
-      <div class="card border-l-4 border-l-agent-warning">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-2xl">&#128204;</span>
-          <h3 class="text-agent-text font-bold">Pilar 3: Traces (la pelicula COMPLETA)</h3>
-        </div>
-        <p class="text-sm text-agent-muted mb-3">El camino completo de un request a traves del sistema: desde la entrada del usuario, cada decision del agente, cada tool call, hasta la respuesta final. Los traces son la herramienta MAS valiosa para debuggear agentes porque te muestran el "razonamiento" paso a paso.</p>
-
-        <div class="bg-agent-darker rounded-lg p-3 mb-3">
-          <p class="text-xs text-agent-muted mb-2">Trace de un request tipico (vista de arbol):</p>
-          <div class="space-y-1 text-xs font-mono">
-            <p class="text-agent-accent">&#9500; [0ms] User input recibido: "mi pago de ayer no aparece"</p>
-            <p class="text-agent-text">&#9500; [120ms] LLM call: clasificar ticket</p>
-            <p class="text-agent-muted">&#9474;   &#9492; tokens: in=245, out=97 | confidence: 0.73 | result: "billing"</p>
-            <p class="text-agent-text">&#9500; [1200ms] Tool: query_billing_db(user_id=U-789)</p>
-            <p class="text-agent-muted">&#9474;   &#9492; latency: 340ms | rows: 3 | status: OK</p>
-            <p class="text-agent-text">&#9500; [1600ms] LLM call: analizar datos + generar respuesta</p>
-            <p class="text-agent-muted">&#9474;   &#9492; tokens: in=892, out=156 | decision: "pago en proceso"</p>
-            <p class="text-agent-text">&#9500; [2100ms] Tool: send_response(ticket_id=TK-4521)</p>
-            <p class="text-agent-muted">&#9474;   &#9492; latency: 45ms | status: OK</p>
-            <p class="text-agent-success">&#9492; [2200ms] Request completado | total tokens: 1390 | costo: $0.028</p>
-          </div>
-        </div>
-
-        <p class="text-sm text-agent-muted mb-2"><strong class="text-agent-text">Herramientas de tracing para agentes:</strong></p>
-        <div class="grid grid-cols-2 gap-2">
-          <div class="bg-agent-darker rounded-lg p-2">
-            <p class="text-xs text-agent-highlight font-bold">OpenTelemetry</p>
-            <p class="text-xs text-agent-muted">Estandar abierto, vendor-neutral. Se integra con cualquier backend (Jaeger, Grafana Tempo, Datadog).</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2">
-            <p class="text-xs text-agent-highlight font-bold">LangSmith</p>
-            <p class="text-xs text-agent-muted">Especifico para LLMs. Excelente UI para explorar traces. Incluye evaluacion y testing.</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2">
-            <p class="text-xs text-agent-highlight font-bold">Datadog LLM Obs</p>
-            <p class="text-xs text-agent-muted">Enterprise. Integra logs+metricas+traces en una plataforma. Dashboards pre-configurados para agentes.</p>
-          </div>
-          <div class="bg-agent-darker rounded-lg p-2">
-            <p class="text-xs text-agent-highlight font-bold">Weights & Biases</p>
-            <p class="text-xs text-agent-muted">Tracking de experimentos y evaluaciones. Fuerte en comparacion A/B de prompts y modelos.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Un equipo de SRE en una empresa de healthcare detectó via traces que su agente de triaje medico a veces entraba en un loop de 12 iteraciones antes de dar una respuesta. El trace mostro que el agente dudaba entre "urgente" y "no urgente" para ciertos sintomas ambiguos, consultando el mismo database 12 veces. Sin el trace, solo veian "latencia alta". Con el trace, implementaron un circuit breaker de 3 iteraciones y una regla: <strong class="text-agent-text">"si el confidence &lt; 60% despues de 3 intentos, escalar a enfermera humana"</strong>. La latencia P99 bajo de 45s a 8s.</p>
-    </div>
-
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Observabilidad es NO NEGOCIABLE</p>
-      <p class="text-sm text-agent-muted">Un agente en produccion sin observabilidad es como un auto sin velocimetro en una autopista. Puedes ir rapido, pero no sabes si estas a 80 o a 200. Cuando pase algo (y SIEMPRE pasa), no vas a tener datos para diagnosticar. <strong class="text-agent-text">Logs + Metricas + Traces. Los tres. Siempre. No es opcional.</strong></p>
+      <p class="text-sm text-agent-warning font-bold mb-1">&#9888;&#65039; tmux vs zellij: la recomendacion</p>
+      <p class="text-sm text-agent-muted">Ambos funcionan. tmux es universal (esta en cualquier servidor Linux), zellij es mas ergonomico. Si ya sabes tmux, no cambies. Si empiezas de cero, zellij tiene menos curva de aprendizaje. <strong class="text-agent-text">Lo que importa es tener un multiplexer, no cual.</strong></p>
     </div>
   </section>
 
-  <!-- THEORY SECTION 3: Gestion de Costos -->
+  <!-- ================================================================== -->
+  <!-- SECTION 2: Claude Code Workspace (70% of module) -->
+  <!-- ================================================================== -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">Gestion de Costos</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">El Workspace Completo de Claude Code</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Los tokens cuestan dinero. Cada tool call es un round trip al LLM. Un agente ineficiente puede multiplicar tu factura por 10. La gestion de costos no es optimizacion prematura: es <strong class="text-agent-highlight">supervivencia</strong>.
+      Un workspace profesional de Claude Code no es solo "instalar claude y correr". Es un ecosistema configurado con <strong class="text-agent-highlight">reglas, agentes, skills, MCP servers, y permisos</strong> que hacen que el agente trabaje como un miembro mas del equipo. El directorio <strong class="text-agent-text">.claude/</strong> en la raiz del proyecto es donde vive toda esta configuracion.
     </p>
 
-    <!-- Cost calculation detail -->
-    <h3 class="text-xl font-bold text-agent-text mb-3">Anatomia del Costo de un Request</h3>
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-info font-bold mb-1">&#128218; Analogia</p>
+      <p class="text-sm text-agent-muted">Piensa en el workspace de Claude Code como el onboarding de un nuevo desarrollador. Cuando alguien se une a tu equipo, le das: las reglas del equipo (CLAUDE.md), acceso a herramientas (MCP servers), roles especificos (agents/), conocimiento del proyecto (skills/), y permisos apropiados (settings.json). Es exactamente lo mismo, pero para un agente.</p>
+    </div>
+
+    <!-- Project Structure -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">Estructura del Directorio .claude/</h3>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Cada request a un agente tiene multiples componentes de costo. Entenderlos es el primer paso para optimizar.
+      Cada archivo y directorio dentro de <strong class="text-agent-text">.claude/</strong> cumple un rol especifico. Esta es la estructura completa de un proyecto profesional:
     </p>
 
     <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
-      <p class="text-sm text-agent-accent font-bold mb-2">Desglose de costos por request tipico:</p>
-      <div class="overflow-x-auto">
-        <table class="w-full text-xs border-collapse">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left py-2 px-3 text-agent-text">Componente</th>
-              <th class="text-right py-2 px-3 text-agent-text">Tokens</th>
-              <th class="text-right py-2 px-3 text-agent-text">Tipo</th>
-              <th class="text-right py-2 px-3 text-agent-text">Costo/req</th>
-              <th class="text-right py-2 px-3 text-agent-text">1000 req/dia</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50">
-              <td class="py-2 px-3">System prompt + tool definitions</td>
-              <td class="text-right py-2 px-3">2,000</td>
-              <td class="text-right py-2 px-3">Input</td>
-              <td class="text-right py-2 px-3">$0.006</td>
-              <td class="text-right py-2 px-3">$6.00</td>
-            </tr>
-            <tr class="border-b border-agent-border/50">
-              <td class="py-2 px-3">Context (user message + history)</td>
-              <td class="text-right py-2 px-3">800</td>
-              <td class="text-right py-2 px-3">Input</td>
-              <td class="text-right py-2 px-3">$0.002</td>
-              <td class="text-right py-2 px-3">$2.40</td>
-            </tr>
-            <tr class="border-b border-agent-border/50">
-              <td class="py-2 px-3">3 tool calls (reasoning + calls)</td>
-              <td class="text-right py-2 px-3">4,500</td>
-              <td class="text-right py-2 px-3">Mixto</td>
-              <td class="text-right py-2 px-3">$0.014</td>
-              <td class="text-right py-2 px-3">$14.00</td>
-            </tr>
-            <tr class="border-b border-agent-border/50">
-              <td class="py-2 px-3">Respuesta final al usuario</td>
-              <td class="text-right py-2 px-3">800</td>
-              <td class="text-right py-2 px-3">Output</td>
-              <td class="text-right py-2 px-3">$0.012</td>
-              <td class="text-right py-2 px-3">$12.00</td>
-            </tr>
-            <tr class="font-bold">
-              <td class="py-2 px-3 text-agent-text">Total</td>
-              <td class="text-right py-2 px-3 text-agent-accent">8,100</td>
-              <td class="text-right py-2 px-3"></td>
-              <td class="text-right py-2 px-3 text-agent-accent">$0.034</td>
-              <td class="text-right py-2 px-3 text-agent-warning">$34.40/dia</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="text-xs text-agent-muted mt-2">Ejemplo con Claude Sonnet 4 pricing ($3/1M input, $15/1M output). Con prompt caching y model routing, este costo puede bajar a $10-15/dia. Sin optimizacion y con loops, puede subir a $200+/dia.</p>
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">proyecto/
+├── CLAUDE.md                  # Reglas globales del agente (siempre se carga)
+├── .mcp.json                  # MCP servers del proyecto
+├── .claude/
+│   ├── settings.json          # Permisos, modelo, configuracion
+│   ├── agents/
+│   │   ├── reviewer.md        # Agente: review de codigo
+│   │   ├── tester.md          # Agente: generador de tests
+│   │   └── documenter.md      # Agente: documentacion
+│   ├── skills/
+│   │   └── django-drf/
+│   │       └── SKILL.md       # Skill: patrones Django REST
+│   ├── commands/
+│   │   ├── review-pr.md       # /review-pr → analiza PR actual
+│   │   └── deploy-check.md    # /deploy-check → pre-deploy checklist
+│   └── rules/
+│       ├── security.md        # Reglas de seguridad
+│       └── testing.md         # Reglas de testing
+└── src/                       # Tu codigo...</pre>`}
     </div>
 
-    <!-- Token budgets -->
-    <div class="space-y-3 mb-6">
-      <div class="card bg-agent-dark border-agent-border">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Token Budgets: Tu Red de Seguridad</h3>
-        <p class="text-xs text-agent-muted mb-2">Limites de tokens a tres niveles que previenen cost overruns catastroficos:</p>
-        <ul class="space-y-1 text-xs text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span><strong class="text-agent-text">Per-request:</strong> Maximo 20,000 tokens por request individual. Si se excede, cortar y responder con lo que hay o escalar.</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span><strong class="text-agent-text">Per-user:</strong> Maximo 100,000 tokens por usuario por hora. Evita que un usuario (o atacante) abuse el sistema.</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span><strong class="text-agent-text">Per-day:</strong> Budget diario global. Alerta a 80%, corte a 100%. Si se agota, activar modo degradado (respuestas template).</li>
-        </ul>
-      </div>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Cada componente se carga en momentos diferentes. <strong class="text-agent-text">CLAUDE.md</strong> se lee al iniciar cada sesion. <strong class="text-agent-text">settings.json</strong> configura el comportamiento base. Los <strong class="text-agent-text">agents/</strong> y <strong class="text-agent-text">skills/</strong> se cargan cuando el agente los necesita (just-in-time). Las <strong class="text-agent-text">rules/</strong> se cargan segun contexto.
+    </p>
 
-      <div class="card bg-agent-dark border-agent-border">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Model Routing: El Modelo Correcto para la Tarea</h3>
-        <p class="text-xs text-agent-muted mb-2">No todas las tareas necesitan el modelo mas caro. Un router inteligente puede reducir costos 60-80%.</p>
-        <div class="bg-agent-darker rounded-lg p-3">
-          {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># Decision tree de model routing
-Tarea simple (clasificar, extraer, formatear)
-  → Haiku/GPT-4o-mini ($0.25/1M input)
-  → Latencia: ~200ms
+    <!-- settings.json -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">settings.json: Permisos y Modelo</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Este archivo define que puede y que no puede hacer Claude Code en tu proyecto. Es tu primera linea de defensa: permisos granulares por herramienta, modelo a usar, y comportamiento general.
+    </p>
 
-Tarea media (resumir, analizar, sugerir)
-  → Sonnet/GPT-4o ($3/1M input)
-  → Latencia: ~800ms
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(npm test*)",
+      "Bash(npm run lint*)",
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)"
+    ],
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(curl*)",
+      "Bash(wget*)"
+    ]
+  },
+  "model": "claude-sonnet-4-20250514"
+}</pre>`}
+    </div>
 
-Tarea compleja (razonar, diseñar, debugging)
-  → Opus/GPT-4-turbo ($15/1M input)
-  → Latencia: ~2000ms
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La logica es simple: <strong class="text-agent-text">allow</strong> lista lo que puede hacer sin preguntar, <strong class="text-agent-text">deny</strong> lo que nunca puede hacer, y todo lo demas le pregunta al usuario (modo "ask"). Esto evita que el agente ejecute comandos destructivos o haga network requests no autorizados.
+    </p>
 
-# Ejemplo: code review pipeline
-clasificar_PR()      → Haiku    (barato, rapido)
-analizar_seguridad() → Sonnet   (bueno, razonable)
-generar_review()     → Opus     (mejor calidad)</pre>`}
-        </div>
-      </div>
+    <!-- MCP Configuration -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">MCP: Conectar Herramientas Externas</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los MCP servers son el puente entre Claude Code y tus sistemas externos. Hay dos niveles de configuracion: <strong class="text-agent-text">.mcp.json</strong> en la raiz del proyecto (herramientas del equipo, se commitea) y <strong class="text-agent-text">~/.claude/settings.json</strong> a nivel usuario (herramientas personales, no se commitea).
+    </p>
 
-      <div class="card bg-agent-dark border-agent-border">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Caching: No Pagues Dos Veces por lo Mismo</h3>
-        <p class="text-xs text-agent-muted mb-2">Tres niveles de caching que reducen costos significativamente:</p>
-        <ul class="space-y-1 text-xs text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span><strong class="text-agent-text">Prompt caching nativo:</strong> Anthropic y OpenAI cachean system prompts automaticamente. Si tu system prompt de 2000 tokens se repite, pagas 10% en la segunda llamada. Ahorro: ~$5/dia en el ejemplo anterior.</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span><strong class="text-agent-text">Cache de tool results:</strong> Si el agente consulta la misma DB query frecuentemente, cachea el resultado por N minutos. Reduce tool calls en ~30%.</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span><strong class="text-agent-text">Semantic cache:</strong> Si dos preguntas son semanticamente similares (no identicas), devolver la respuesta cacheada. Mas complejo pero puede eliminar 20-40% de LLM calls.</li>
-        </ul>
-      </div>
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">// .mcp.json — Nivel proyecto (se commitea en git)
+{
+  "mcpServers": {
+    "jira": {
+      "command": "uvx",
+      "args": ["mcp-atlassian"],
+      "env": {
+        "JIRA_URL": "https://tu-empresa.atlassian.net",
+        "JIRA_USERNAME": "JIRA_USERNAME",
+        "JIRA_API_TOKEN": "JIRA_API_TOKEN"
+      }
+    },
+    "github": {
+      "command": "gh",
+      "args": ["copilot", "mcp-server"]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@context7/mcp"]
+    }
+  }
+}</pre>`}
+    </div>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-success font-mono whitespace-pre-wrap">// ~/.claude/settings.json — Nivel usuario (NO se commitea)
+{
+  "mcpServers": {
+    "memory": {
+      "command": "hoofy",
+      "args": ["--db", "~/.hoofy/memory.db"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-filesystem", "/home/user/docs"]
+    }
+  }
+}</pre>`}
     </div>
 
     <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-6">
-      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">Algunos equipos han reportado facturas de <strong class="text-agent-text">$1,000+ por dia</strong> con agentes mal configurados. El caso mas comun: un agente de code review que analiza PRs grandes (5000+ lineas) enviando TODO el diff como contexto en cada tool call, sin caching, usando el modelo mas caro. Optimizar esto (model routing para pre-screening con Haiku + caching de file analysis + truncar diffs a las partes relevantes) bajo el costo a $80/dia. Una reduccion del 92%.</p>
+      <p class="text-sm text-agent-accent font-bold mb-1">&#128161; Regla de oro</p>
+      <p class="text-sm text-agent-muted">MCP servers del proyecto van en <strong class="text-agent-text">.mcp.json</strong> (todos los devs los necesitan). MCP servers personales van en <strong class="text-agent-text">~/.claude/settings.json</strong> (solo tu los usas). Nunca pongas tokens/API keys en .mcp.json; usa variables de entorno referenciadas.</p>
     </div>
 
-    <!-- Cost optimization checklist -->
-    <h3 class="text-xl font-bold text-agent-text mb-3">Checklist de Optimizacion de Costos</h3>
-    <div class="space-y-2 mb-6">
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">Token budgets configurados (per-request, per-user, per-day)</p>
-      </div>
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">Model routing: tarea simple = modelo barato, tarea compleja = modelo caro</p>
-      </div>
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">Prompt caching nativo habilitado (system prompts estaticos)</p>
-      </div>
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">Cache de tool results para queries frecuentes (TTL apropiado)</p>
-      </div>
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">Circuit breakers en loops (max iterations por request)</p>
-      </div>
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">Alertas de costo a 150% y 300% del promedio</p>
-      </div>
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">System prompts optimizados (concisos, sin redundancia)</p>
-      </div>
-      <div class="flex items-center gap-2 p-2 bg-agent-dark rounded border border-agent-border/30">
-        <span class="text-agent-accent">&#9745;</span>
-        <p class="text-xs text-agent-muted">Tool definitions minimales (solo los parametros necesarios)</p>
-      </div>
-    </div>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Un equipo de DevOps redujo los costos de su agente de monitoreo en <strong class="text-agent-text">un 80%</strong> con tres cambios: (1) Routing: alertas simples las procesa Haiku, solo incidentes complejos van a Opus. (2) Caching: el estado de los servidores se cachea 60 segundos (el agente consultaba el mismo healthcheck 20 veces por minuto). (3) Budget: maximo 5000 tokens por alerta, con fallback a template si se excede. La calidad de las respuestas se mantuvo porque las tareas simples no NECESITAN un modelo caro.</p>
-    </div>
-  </section>
-
-  <!-- THEORY SECTION 4: CI/CD con Agentes -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">CI/CD con Agentes</h2>
+    <!-- Custom Agents -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">Agentes Custom: Especialistas del Equipo</h3>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Los agentes no solo se deployean CON CI/CD. Los agentes pueden ser PARTE del pipeline. Hay dos perspectivas fundamentalmente diferentes, y cada una tiene sus riesgos.
+      Los agentes custom son archivos Markdown en <strong class="text-agent-text">.claude/agents/</strong>. Cada archivo define un agente con personalidad, instrucciones, y restricciones. Se invocan desde dentro de una sesion de Claude Code con el Agent tool.
     </p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <div class="card border-l-4 border-l-agent-accent">
-        <h3 class="text-agent-text font-bold mb-2">Agentes EN el pipeline</h3>
-        <p class="text-sm text-agent-muted mb-2">El agente corre como un step del CI/CD. Es una herramienta MAS en el pipeline, al lado de linters y tests.</p>
-        <ul class="space-y-1 text-xs text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Code review automatico de PRs</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Generacion de tests para codigo nuevo</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Security scanning con contexto semantico</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Documentacion automatica de cambios</li>
-          <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">&#9656;</span>Chequeo de convenciones y patrones</li>
-        </ul>
-      </div>
-      <div class="card border-l-4 border-l-agent-warning">
-        <h3 class="text-agent-text font-bold mb-2">Agentes COMO el pipeline</h3>
-        <p class="text-sm text-agent-muted mb-2">El agente gestiona el deployment completo. Tiene ACCIONES, no solo opiniones. Mucho mas riesgoso.</p>
-        <ul class="space-y-1 text-xs text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">&#9656;</span>Decide si un PR esta listo para merge</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">&#9656;</span>Ejecuta el deployment a staging/production</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">&#9656;</span>Monitorea post-deployment</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">&#9656;</span>Hace rollback si detecta problemas</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">&#9656;</span>Ajusta configuracion en produccion</li>
-        </ul>
-        <p class="text-xs text-agent-danger mt-2">RIESGO: Un agente con permisos de deploy puede causar dano irreversible. Requiere guardrails estrictos y human-in-the-loop para acciones destructivas.</p>
-      </div>
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># .claude/agents/reviewer.md
+
+Eres un reviewer de codigo estricto pero constructivo.
+
+## Reglas
+- Analiza SIEMPRE: seguridad, rendimiento, legibilidad, tests
+- Formato: lista de hallazgos con severidad (critical/warning/info)
+- Nunca modifiques codigo. Solo lee y comenta.
+- Si encuentras un bug potencial, muestra el escenario exacto que lo dispara
+- Verifica que cada cambio tenga tests correspondientes
+
+## Output esperado
+1. Resumen ejecutivo (1-2 lineas)
+2. Hallazgos criticos (si hay)
+3. Warnings
+4. Sugerencias de mejora
+5. Veredicto: APPROVE, REQUEST_CHANGES, o COMMENT</pre>`}
     </div>
 
-    <!-- GitHub Actions example -->
-    <h3 class="text-xl font-bold text-agent-text mb-3">Ejemplo: Agente en GitHub Actions</h3>
     <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
-      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># .github/workflows/ai-review.yml
-name: AI Code Review
-on:
-  pull_request:
-    types: [opened, synchronize]
+      {@html `<pre class="text-xs text-agent-success font-mono whitespace-pre-wrap"># .claude/agents/tester.md
 
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+Eres un generador de tests experto.
 
-      - name: AI Security Scan
-        uses: anthropic/claude-code-action@v1
-        with:
-          model: claude-sonnet-4
-          prompt: |
-            Review this PR for security vulnerabilities.
-            Focus on: SQL injection, XSS, auth bypasses.
-            Only comment if confidence > 80%.
-          max_tokens: 5000
-          # GUARDRAIL: solo puede COMENTAR, no mergear
-          permissions: "comment-only"
+## Reglas
+- Lee el codigo fuente y genera tests exhaustivos
+- Cubre: happy path, edge cases, error handling, boundary values
+- Usa el framework de testing del proyecto (detectalo de package.json)
+- Cada test debe ser independiente (no depender de otros tests)
+- Incluye tests de integracion cuando la funcion interactua con APIs o DB
 
-      - name: AI Test Suggestion
-        uses: anthropic/claude-code-action@v1
-        with:
-          model: claude-haiku-4  # modelo barato para sugerencias
-          prompt: |
-            Identify functions in the diff that lack tests.
-            Suggest test cases but don't write them.
-          max_tokens: 3000</pre>`}
+## Patron
+1. Lee la funcion
+2. Identifica inputs, outputs, y side effects
+3. Genera tests en orden: happy path → edge cases → errors
+4. Verifica que los tests pasen antes de terminar</pre>`}
+    </div>
+
+    <!-- Skills -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">Skills: Conocimiento Just-in-Time</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Las skills son archivos <strong class="text-agent-text">SKILL.md</strong> dentro de <strong class="text-agent-text">.claude/skills/</strong>. La diferencia con los agentes es que las skills se cargan <strong class="text-agent-highlight">automaticamente segun el contexto</strong> del archivo que estas editando. El frontmatter YAML define cuando se activa:
+    </p>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># .claude/skills/svelte5/SKILL.md
+---
+globs:
+  - "**/*.svelte"
+  - "src/lib/**/*.ts"
+description: "Svelte 5 runes patterns for this project"
+---
+
+# Svelte 5 Patterns
+
+## Runes (NOT Svelte 4)
+- State: \`let x = $state(initialValue)\`
+- Derived: \`let y = $derived(expression)\`
+- Props: \`let { prop1, prop2 }: Props = $props()\`
+- Effects: \`$effect(() => { ... })\`
+
+## CRITICAL: Template code blocks
+- ALL code with { } or &lt; must use \`{@html \\\`&lt;pre>...&lt;/pre>\\\`}\`
+- Unicode escapes \\u{XXXX} CANNOT be used in templates
+- Use HTML entities &amp;#xXXXX; instead
+
+## Component pattern
+Always: Header > Theory > Interactive > Quiz > ModuleNav</pre>`}
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Cuando Claude Code abre un archivo <strong class="text-agent-text">.svelte</strong>, automaticamente carga esta skill porque el glob coincide. No necesitas decirle "usa las reglas de Svelte"; se inyecta automaticamente en su contexto. Esto es <strong class="text-agent-highlight">context engineering en accion</strong>: el conocimiento correcto llega al agente en el momento correcto.
+    </p>
+
+    <!-- Complete workspace example -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">Ejemplo: Workspace desde Cero</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Veamos como configurar un workspace completo para un proyecto real. Estos son los comandos y archivos para crear todo el andamiaje:
+    </p>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># 1. Crear estructura del workspace
+mkdir -p .claude/agents .claude/skills .claude/commands .claude/rules
+
+# 2. Crear CLAUDE.md (reglas globales)
+cat &lt;&lt; 'EOF' > CLAUDE.md
+# Mi Proyecto — CLAUDE.md
+
+## Stack
+- Python 3.12 + Django 5.1 + DRF
+- PostgreSQL 16 + Redis 7
+- pytest + factory_boy para tests
+
+## Reglas
+- Nunca usar print(). Siempre logging.
+- Tests obligatorios para todo endpoint nuevo.
+- Conventional commits: feat:, fix:, refactor:
+- Nunca commitear .env ni secrets.
+EOF
+
+# 3. Crear settings.json con permisos
+cat &lt;&lt; 'EOF' > .claude/settings.json
+{
+  "permissions": {
+    "allow": ["Read", "Glob", "Grep", "Bash(pytest*)"],
+    "deny": ["Bash(rm -rf*)", "Bash(git push --force*)"]
+  }
+}
+EOF
+
+# 4. Crear .mcp.json para herramientas del proyecto
+cat &lt;&lt; 'EOF' > .mcp.json
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@context7/mcp"]
+    }
+  }
+}
+EOF
+
+# 5. Verificar que funciona
+claude  # Inicia sesion — debe cargar CLAUDE.md</pre>`}
     </div>
 
     <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-6">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Dar al agente de CI/CD permisos de <strong class="text-agent-text">write</strong> cuando solo necesita <strong class="text-agent-text">read + comment</strong>. El principio de minimo privilegio aplica DOBLEMENTE para agentes: un agente con permisos de push a main puede hacer commits catastroficos. Empieza siempre con "comment-only" y escala privilegios gradualmente despues de validar.</p>
-    </div>
-
-    <!-- Staging first rule -->
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-accent font-bold mb-2">La Regla de Staging</p>
-      <p class="text-sm text-agent-muted">Si un agente va a ejecutar acciones (no solo opinar), la regla es simple: <strong class="text-agent-text">NUNCA directamente a produccion</strong>. El flujo es: agente actua en staging → tests pasan → humano aprueba → deploy a produccion. Un agente que puede deployar directamente a produccion sin aprobacion humana es una bomba de tiempo.</p>
-    </div>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">GitHub Copilot's "coding agent" (Copilot Workspace) maneja PRs de la siguiente forma: recibe un issue, crea un plan, genera el codigo, abre un PR con el diff, y ejecuta los tests del CI. Pero <strong class="text-agent-text">NUNCA mergea automaticamente</strong>. Siempre requiere aprobacion humana para el merge. Esto es intencional: la generacion de codigo es la parte facil; la decision de "esto es correcto y seguro para produccion" requiere juicio humano.</p>
+      <p class="text-sm text-agent-danger font-bold mb-1">&#128680; Error comun</p>
+      <p class="text-sm text-agent-muted">No commitees <strong class="text-agent-text">~/.claude/settings.json</strong> (configuracion personal) ni pongas API keys directamente en <strong class="text-agent-text">.mcp.json</strong>. Usa variables de entorno: <span class="text-agent-highlight font-mono">"JIRA_API_TOKEN": "JIRA_API_TOKEN"</span> hace que Claude Code lea la variable de entorno con ese nombre, no el string literal.</p>
     </div>
   </section>
 
-  <!-- THEORY SECTION 5: Cuando NO Usar Agentes -->
+  <!-- ================================================================== -->
+  <!-- SECTION 3: Git Worktrees -->
+  <!-- ================================================================== -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">Cuando NO Usar Agentes</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Git Worktrees: Trabajo Paralelo sin Conflictos</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      No todo necesita un agente. Usar un agente cuando un <strong class="text-agent-highlight">if/else</strong> resuelve el problema es sobre-ingenieria costosa. Aqui esta el framework de decision expandido.
+      Los <strong class="text-agent-highlight">git worktrees</strong> son una funcionalidad nativa de git que crea <strong class="text-agent-text">copias de trabajo independientes</strong> del mismo repositorio, cada una en una rama distinta. A diferencia de clonar el repo multiples veces, los worktrees comparten el mismo directorio <strong class="text-agent-text">.git/</strong>. Esto significa: un solo historial, menos espacio en disco, y cambios que se reflejan inmediatamente al hacer merge.
     </p>
 
-    <div class="space-y-3 mb-6">
-      <div class="card bg-agent-dark border-l-4 border-l-agent-danger">
-        <div class="flex items-start gap-3">
-          <span class="text-xl shrink-0">&#10060;</span>
-          <div>
-            <h3 class="text-agent-text font-bold">Logica deterministica</h3>
-            <p class="text-sm text-agent-muted">Si la respuesta correcta se puede determinar con reglas fijas (if/else, switch, lookup table), usa codigo. Un agente es LENTO ($0.03, 2 segundos) y COSTOSO para lo que un diccionario Python resuelve en microsegundos ($0.00, 0.001ms).</p>
-          </div>
-        </div>
-      </div>
-      <div class="card bg-agent-dark border-l-4 border-l-agent-danger">
-        <div class="flex items-start gap-3">
-          <span class="text-xl shrink-0">&#10060;</span>
-          <div>
-            <h3 class="text-agent-text font-bold">Reglas simples</h3>
-            <p class="text-sm text-agent-muted">"Si el monto es mayor a $1000, requiere aprobacion." Esto es un rules engine, no un agente. Usar un LLM para evaluar condiciones booleanas es como usar un camion para ir al supermercado de la esquina.</p>
-          </div>
-        </div>
-      </div>
-      <div class="card bg-agent-dark border-l-4 border-l-agent-danger">
-        <div class="flex items-start gap-3">
-          <span class="text-xl shrink-0">&#10060;</span>
-          <div>
-            <h3 class="text-agent-text font-bold">High-stakes sin observabilidad</h3>
-            <p class="text-sm text-agent-muted">Si no puedes monitorear que hace el agente y las acciones son irreversibles (transferencias financieras, borrar datos, decisiones medicas), NO uses agentes hasta que tengas observabilidad completa y human-in-the-loop.</p>
-          </div>
-        </div>
-      </div>
-      <div class="card bg-agent-dark border-l-4 border-l-agent-danger">
-        <div class="flex items-start gap-3">
-          <span class="text-xl shrink-0">&#10060;</span>
-          <div>
-            <h3 class="text-agent-text font-bold">Sin test suite</h3>
-            <p class="text-sm text-agent-muted">Si tu proyecto no tiene tests, agregar un agente es poner un piloto automatico en un avion sin instrumentos. Arregla testing primero, despues agrega agentes. Los tests son tu red de seguridad cuando el agente hace cambios.</p>
-          </div>
-        </div>
-      </div>
-      <div class="card bg-agent-dark border-l-4 border-l-agent-danger">
-        <div class="flex items-start gap-3">
-          <span class="text-xl shrink-0">&#10060;</span>
-          <div>
-            <h3 class="text-agent-text font-bold">Compliance estricto sin auditoria</h3>
-            <p class="text-sm text-agent-muted">En entornos regulados (fintech, healthcare), cada decision necesita ser explicable y auditable. Si no puedes responder "por que el agente hizo X", necesitas human-in-the-loop obligatorio.</p>
-          </div>
-        </div>
-      </div>
-      <div class="card bg-agent-dark border-l-4 border-l-agent-success">
-        <div class="flex items-start gap-3">
-          <span class="text-xl shrink-0">&#9989;</span>
-          <div>
-            <h3 class="text-agent-text font-bold">SI usa agente: tareas ambiguas que requieren razonamiento + herramientas</h3>
-            <p class="text-sm text-agent-muted">Analizar un ticket de soporte, diagnosticar un bug, escribir codigo en contexto de un proyecto, investigar un topic, generar contenido personalizado. Aqui es donde los agentes brillan: necesitan <strong class="text-agent-text">razonar sobre informacion ambigua y usar herramientas para actuar</strong>.</p>
-          </div>
-        </div>
-      </div>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Para trabajo con Claude Code, los worktrees son transformadores: cada worktree tiene su propio directorio de trabajo, asi que puedes correr <strong class="text-agent-text">una sesion de Claude Code por worktree</strong> sin que se pisen los archivos entre si. Es la base del trabajo multi-sesion.
+    </p>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># Crear worktrees para trabajo paralelo
+# Desde el directorio principal del repo:
+
+# Worktree 1: feature de autenticacion
+git worktree add ../mi-proyecto-auth feature/auth
+
+# Worktree 2: fix de performance
+git worktree add ../mi-proyecto-perf fix/slow-query
+
+# Worktree 3: refactor de API
+git worktree add ../mi-proyecto-api refactor/api-v2
+
+# Estructura resultante en disco:
+# ~/projects/mi-proyecto/          ← main (rama principal)
+# ~/projects/mi-proyecto-auth/     ← feature/auth
+# ~/projects/mi-proyecto-perf/     ← fix/slow-query
+# ~/projects/mi-proyecto-api/      ← refactor/api-v2
+#
+# Todos comparten el mismo .git/ → un solo historial</pre>`}
     </div>
 
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">Los agentes son <strong class="text-agent-text">HERRAMIENTAS, no soluciones magicas</strong>. La trampa de la sobre-ingenieria es real: equipos que meten agentes donde no se necesitan terminan con sistemas mas lentos, mas caros, y mas fragiles que la alternativa simple. Preguntate siempre: "¿Puedo resolver esto con un if/else? ¿Con un script? ¿Con una query SQL?" Si la respuesta es si, no necesitas un agente.</p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Ahora, abres 3 panes en tu multiplexer, cada uno en un worktree diferente, y corres <strong class="text-agent-text">claude</strong> en cada uno. Tres agentes trabajando en tres features simultaneamente, con <strong class="text-agent-highlight">cero riesgo de conflictos de archivos</strong>.
+    </p>
+
+    <!-- Claude Code worktree integration -->
+    <h3 class="text-xl font-bold text-agent-text mb-3">Worktrees con Claude Code</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Claude Code tiene integracion directa con worktrees. Desde dentro de una sesion, puedes usar la herramienta <strong class="text-agent-text">EnterWorktree</strong> para crear un worktree y cambiar tu sesion a el automaticamente:
+    </p>
+
+    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-6">
+      {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># Desde Claude Code, al decir "trabaja en un worktree":
+# Claude usa EnterWorktree internamente
+
+# O desde la CLI directamente:
+claude -w feature-name  # Crea worktree y abre sesion ahi
+
+# Listar worktrees existentes:
+git worktree list
+# /home/user/mi-proyecto           abcdef1 [main]
+# /home/user/mi-proyecto-auth      1234567 [feature/auth]
+# /home/user/mi-proyecto-perf      89abcde [fix/slow-query]
+
+# Cuando terminas, limpiar worktrees:
+git worktree remove ../mi-proyecto-auth
+git worktree remove ../mi-proyecto-perf
+
+# O limpiar todos los worktrees que ya no tienen rama:
+git worktree prune</pre>`}
+    </div>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-accent font-bold mb-1">&#128161; El patron Boris Cherny</p>
+      <p class="text-sm text-agent-muted">Boris Cherny (autor de "22 Tips for Claude Code") recomienda mantener <strong class="text-agent-text">3-5 sesiones paralelas</strong> como rango optimo. Menos de 3 y no aprovechas el paralelismo. Mas de 5 y el overhead de monitorear y coordinar supera los beneficios. El sweet spot esta en 3 worktrees activos: una feature principal, una secundaria, y una para investigacion/research.</p>
     </div>
   </section>
 
-  <!-- THEORY SECTION 6: Patterns de Produccion -->
+  <!-- ================================================================== -->
+  <!-- SECTION 4: incident.io Case Study -->
+  <!-- ================================================================== -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">Patterns de Produccion</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Caso: incident.io y el Poder de los Worktrees</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Estos patrones de ingenieria de confiabilidad son tan relevantes para agentes como para microservicios. Aprendelos, implementalos, duermete tranquilo. Cada patron incluye pseudocodigo para que entiendas la mecanica.
+      <strong class="text-agent-highlight">incident.io</strong> es una plataforma de gestion de incidentes que adoptó Claude Code con git worktrees como parte central de su flujo de desarrollo. Su experiencia es uno de los casos mas documentados del impacto real de esta combinacion.
+    </p>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div class="card bg-agent-dark text-center">
+        <span class="text-2xl font-bold text-agent-accent block">4-7</span>
+        <p class="text-xs text-agent-muted mt-1">Sesiones concurrentes por desarrollador</p>
+      </div>
+      <div class="card bg-agent-dark text-center">
+        <span class="text-2xl font-bold text-agent-accent block">Day 2</span>
+        <p class="text-xs text-agent-muted mt-1">Nuevos empleados shipping code</p>
+      </div>
+      <div class="card bg-agent-dark text-center">
+        <span class="text-2xl font-bold text-agent-success block">0</span>
+        <p class="text-xs text-agent-muted mt-1">Merge conflicts por worktrees</p>
+      </div>
+      <div class="card bg-agent-dark text-center">
+        <span class="text-2xl font-bold text-agent-warning block">Fast</span>
+        <p class="text-xs text-agent-muted mt-1">CI como prerequisito critico</p>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Insights Clave</h3>
+
+    <div class="space-y-4 mb-6">
+      <div class="card bg-agent-dark border-l-4 border-l-agent-accent">
+        <h4 class="text-agent-accent font-bold text-sm mb-2">"Fast tooling is a prerequisite"</h4>
+        <p class="text-sm text-agent-muted">El insight mas importante de incident.io: <strong class="text-agent-text">si tu CI tarda 20 minutos, no importa cuantos agentes tengas</strong>. Todos estaran esperando. Invirtieron en hacer su pipeline de CI extremadamente rapido antes de escalar el numero de agentes. Un agente bloqueado esperando CI es un agente quemando tokens sin producir valor.</p>
+      </div>
+
+      <div class="card bg-agent-dark border-l-4 border-l-agent-success">
+        <h4 class="text-agent-success font-bold text-sm mb-2">New hires shipping code on day 2</h4>
+        <p class="text-sm text-agent-muted">Uno de los beneficios inesperados: los <strong class="text-agent-text">nuevos empleados</strong> podian contribuir codigo productivo desde su segundo dia usando Claude Code. El agente ya conocia el codebase (via CLAUDE.md y skills), las convenciones, y los patrones. El onboarding paso de semanas a horas. Claude Code funciona como un "mentor virtual" del proyecto.</p>
+      </div>
+
+      <div class="card bg-agent-dark border-l-4 border-l-agent-warning">
+        <h4 class="text-agent-warning font-bold text-sm mb-2">Git worktrees eliminaron los merge conflicts</h4>
+        <p class="text-sm text-agent-muted">Antes de worktrees, multiples desarrolladores (o agentes) editando el mismo directorio causaba conflictos constantes. Con worktrees, <strong class="text-agent-text">cada sesion tiene su propio filesystem aislado</strong>. Los merges ocurren en git, donde son manejables, no en el filesystem, donde son caos. El patron: "un worktree por feature, un merge al terminar".</p>
+      </div>
+
+      <div class="card bg-agent-dark border-l-4 border-l-agent-info">
+        <h4 class="text-agent-info font-bold text-sm mb-2">4-7 sesiones concurrentes como workflow normal</h4>
+        <p class="text-sm text-agent-muted">Los desarrolladores de incident.io corren rutinariamente entre 4 y 7 sesiones de Claude Code en paralelo. Cada sesion en su worktree, cada una con una tarea especifica. El multiplexer (tmux) les permite monitorear todas las sesiones y saltar entre ellas. Es como tener un equipo de 4-7 desarrolladores junior trabajando bajo tu supervision.</p>
+      </div>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-danger font-bold mb-1">&#128680; La leccion que nadie menciona</p>
+      <p class="text-sm text-agent-muted">incident.io no llego a 7 sesiones el dia 1. Empezaron con 1-2, aprendieron los patrones, optimizaron su CI, mejoraron su CLAUDE.md, y gradualmente escalaron. <strong class="text-agent-text">Escalar agentes sin las bases (fast CI, buen CLAUDE.md, worktrees) amplifica problemas, no productividad.</strong></p>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- SECTION 5: Multi-Session Patterns -->
+  <!-- ================================================================== -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Patrones Multi-Sesion</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Correr multiples sesiones de Claude Code no es solo "abrir mas terminales". Hay <strong class="text-agent-highlight">patrones especificos</strong> que maximizan el valor de cada sesion. Aqui los cinco patrones mas usados por equipos profesionales:
     </p>
 
     <div class="space-y-4 mb-6">
-      <!-- Retry with backoff -->
-      <div class="card bg-agent-dark">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Retry con Exponential Backoff</h3>
-        <p class="text-xs text-agent-muted mb-2">Si una tool call falla, reintenta con delay creciente. Evita saturar APIs externas. Maximo 3-5 retries.</p>
-        <div class="bg-agent-darker rounded-lg p-3">
-          {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">async function callWithRetry(fn, maxRetries = 3) {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fn()
-    } catch (error) {
-      if (attempt === maxRetries - 1) throw error
-      const delay = Math.pow(2, attempt) * 1000 // 1s, 2s, 4s
-      await sleep(delay + Math.random() * 500)  // + jitter
-      log.warn({ attempt, delay, error: error.message })
-    }
-  }
-}</pre>`}
+      <!-- Pattern 1 -->
+      <div class="card bg-agent-dark border-agent-border">
+        <div class="flex items-start gap-3">
+          <span class="text-xl shrink-0">&#128640;</span>
+          <div>
+            <h4 class="text-agent-text font-bold">Patron 1: Features en Paralelo</h4>
+            <p class="text-sm text-agent-muted mb-2">Cada worktree = una feature branch = una sesion de Claude Code. El patron mas comun y el que usa incident.io.</p>
+            <div class="bg-agent-darker rounded-lg p-3">
+              {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># Worktree 1: feature/user-auth     → Claude Code implementando login
+# Worktree 2: feature/api-v2        → Claude Code migrando endpoints
+# Worktree 3: fix/search-perf       → Claude Code optimizando queries
+# Main:       sin cambios, limpio para PR reviews</pre>`}
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Circuit breaker -->
-      <div class="card bg-agent-dark">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Circuit Breaker</h3>
-        <p class="text-xs text-agent-muted mb-2">Tres estados: <strong class="text-agent-text">Cerrado</strong> (funciona normal) → <strong class="text-agent-text">Abierto</strong> (demasiados fallos, usa fallback) → <strong class="text-agent-text">Semi-abierto</strong> (prueba si se recupero).</p>
-        <div class="bg-agent-darker rounded-lg p-3">
-          {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">class CircuitBreaker {
-  state = 'CLOSED'      // CLOSED | OPEN | HALF_OPEN
-  failureCount = 0
-  threshold = 3          // fallos antes de abrir
-  resetTimeout = 30000   // 30s antes de probar de nuevo
-
-  async call(fn, fallback) {
-    if (this.state === 'OPEN') {
-      if (Date.now() > this.lastFailure + this.resetTimeout) {
-        this.state = 'HALF_OPEN'  // probar una vez
-      } else {
-        return fallback()  // usar plan B
-      }
-    }
-    try {
-      const result = await fn()
-      this.reset()  // exito: volver a CLOSED
-      return result
-    } catch (error) {
-      this.failureCount++
-      if (this.failureCount >= this.threshold) {
-        this.state = 'OPEN'  // demasiados fallos
-        this.lastFailure = Date.now()
-      }
-      return fallback()
-    }
-  }
-}</pre>`}
+      <!-- Pattern 2 -->
+      <div class="card bg-agent-dark border-agent-border">
+        <div class="flex items-start gap-3">
+          <span class="text-xl shrink-0">&#128269;</span>
+          <div>
+            <h4 class="text-agent-text font-bold">Patron 2: Research + Implementation</h4>
+            <p class="text-sm text-agent-muted mb-2">Una sesion investiga con <strong class="text-agent-text">Plan Mode</strong> (Shift+Tab): lee codigo, analiza opciones, escribe un plan. Otra sesion implementa siguiendo ese plan. El researcher no modifica archivos; el implementer no pierde tiempo investigando.</p>
+            <div class="bg-agent-darker rounded-lg p-3">
+              {@html `<pre class="text-xs text-agent-success font-mono whitespace-pre-wrap"># Sesion 1 (Research): "analiza el schema de auth y propon 3 opciones"
+#   → Plan Mode activado, solo lee archivos, genera documento
+# Sesion 2 (Implement): "implementa la opcion 2 del plan de auth"
+#   → Worktree separado, escribe codigo basado en el research</pre>`}
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Fallback chains -->
-      <div class="card bg-agent-dark">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Fallback Chains</h3>
-        <p class="text-xs text-agent-muted mb-2">Si el plan A falla, plan B. Si B falla, plan C. Nunca dejes al usuario sin respuesta.</p>
-        <div class="bg-agent-darker rounded-lg p-3">
-          {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">async function processTicket(ticket) {
-  // Plan A: Agente completo con Opus
-  try {
-    return await agentOpus.process(ticket)
-  } catch (e) { log.warn('Opus failed, trying Sonnet') }
-
-  // Plan B: Agente simplificado con Sonnet
-  try {
-    return await agentSonnet.process(ticket)
-  } catch (e) { log.warn('Sonnet failed, trying template') }
-
-  // Plan C: Respuesta template
-  try {
-    return templateResponse(ticket.category)
-  } catch (e) { log.error('Template failed') }
-
-  // Plan D: Escalacion a humano
-  return escalateToHuman(ticket)
-}</pre>`}
+      <!-- Pattern 3 -->
+      <div class="card bg-agent-dark border-agent-border">
+        <div class="flex items-start gap-3">
+          <span class="text-xl shrink-0">&#128680;</span>
+          <div>
+            <h4 class="text-agent-text font-bold">Patron 3: CI Watcher + Fixer</h4>
+            <p class="text-sm text-agent-muted mb-2">Una sesion monitorea el output de tests/CI. Cuando un test falla, otra sesion recibe el error y lo arregla. Ciclo continuo de green/red/fix.</p>
+            <div class="bg-agent-darker rounded-lg p-3">
+              {@html `<pre class="text-xs text-agent-warning font-mono whitespace-pre-wrap"># Pane 1: npm test -- --watch  (monitorea tests)
+# Pane 2: Claude Code  (implementa features)
+# Workflow: test falla → copias error al agente → arregla → test pasa</pre>`}
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Graceful degradation -->
-      <div class="card bg-agent-dark">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Graceful Degradation</h3>
-        <p class="text-xs text-agent-muted">Si el agente no puede dar la respuesta completa, da una respuesta parcial. Mejor "no tengo toda la info pero aqui va lo que se" que un error 500. Muestra resultados parciales con transparencia sobre lo que falta.</p>
-      </div>
-
-      <!-- Kill switch -->
-      <div class="card bg-agent-dark">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Kill Switch</h3>
-        <p class="text-xs text-agent-muted mb-2">Un mecanismo que detiene TODOS los agentes inmediatamente. No es un lujo, es un requisito. Implementacion minima:</p>
-        <div class="bg-agent-darker rounded-lg p-3">
-          {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap">// Feature flag como kill switch
-async function processRequest(req) {
-  // Chequeo ANTES de cualquier LLM call
-  if (await featureFlag.isDisabled('agent-system')) {
-    return fallbackResponse(req) // modo seguro
-  }
-  // ... logica normal del agente
-}
-
-// Para activar: cambiar el flag en tu dashboard
-// Efecto: inmediato, sin deploy, sin restart</pre>`}
+      <!-- Pattern 4 -->
+      <div class="card bg-agent-dark border-agent-border">
+        <div class="flex items-start gap-3">
+          <span class="text-xl shrink-0">&#128065;&#65039;</span>
+          <div>
+            <h4 class="text-agent-text font-bold">Patron 4: Review Session</h4>
+            <p class="text-sm text-agent-muted mb-2">Una sesion con el agente <strong class="text-agent-text">reviewer</strong> (custom agent) revisa PRs, genera comentarios, y sugiere mejoras. Corre en paralelo a tu trabajo normal.</p>
+            <div class="bg-agent-darker rounded-lg p-3">
+              {@html `<pre class="text-xs text-agent-accent font-mono whitespace-pre-wrap"># Sesion Review: "usa el agente reviewer para analizar PR #42"
+#   → Lee el diff, analiza seguridad/calidad/tests
+#   → Genera reporte estructurado con hallazgos
+# Tu sesion principal: sigues trabajando en tu feature</pre>`}
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Canary deployment -->
-      <div class="card bg-agent-dark">
-        <h3 class="text-agent-accent font-bold text-sm mb-2">Canary Deployment</h3>
-        <p class="text-xs text-agent-muted">Despliega cambios al 5% del trafico primero. Si las metricas son buenas despues de 30 minutos, sube a 25%, luego 50%, luego 100%. Si no, rollback automatico. Esto aplica especialmente a cambios de prompts: un prompt que suena mejor puede PERFORMAR peor a escala.</p>
+      <!-- Pattern 5 -->
+      <div class="card bg-agent-dark border-agent-border">
+        <div class="flex items-start gap-3">
+          <span class="text-xl shrink-0">&#128202;</span>
+          <div>
+            <h4 class="text-agent-text font-bold">Patron 5: Documentacion Continua</h4>
+            <p class="text-sm text-agent-muted mb-2">Una sesion dedicada a mantener docs actualizados. Cada vez que otra sesion hace un cambio significativo, la sesion de docs actualiza README, API docs, o changelogs.</p>
+            <div class="bg-agent-darker rounded-lg p-3">
+              {@html `<pre class="text-xs text-agent-success font-mono whitespace-pre-wrap"># Sesion Docs: "monitorea los cambios recientes y actualiza la documentacion"
+#   → Lee git log, identifica cambios publicos
+#   → Actualiza API docs, README, CHANGELOG</pre>`}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">No tener un kill switch. <strong class="text-agent-text">Tu agente EVENTUALMENTE va a hacer algo inesperado</strong>. Puede ser un loop de costos, una respuesta ofensiva, una accion destructiva, o un comportamiento que simplemente no anticipaste. Si no puedes apagarlo en segundos (no minutos, no horas: SEGUNDOS), el dano se multiplica cada segundo que pasa. Un feature flag o environment variable que desactiva el sistema es lo minimo.</p>
+    <!-- When to use what -->
+    <h3 class="text-lg font-bold text-agent-text mb-3">Multi-sesion vs Agent Teams vs Sub-agents</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      No siempre necesitas multiples sesiones. La decision depende de si las tareas son <strong class="text-agent-highlight">independientes o coordinadas</strong>:
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent font-bold">Approach</th>
+            <th class="text-left py-2 px-3 text-agent-text font-bold">Cuando usarlo</th>
+            <th class="text-left py-2 px-3 text-agent-text font-bold">Ejemplo</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-highlight font-bold">Multi-sesion + worktrees</td>
+            <td class="py-2 px-3">Tareas independientes en archivos distintos</td>
+            <td class="py-2 px-3">3 features en paralelo, cada una en su rama</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-highlight font-bold">Agent Teams</td>
+            <td class="py-2 px-3">Tareas que necesitan coordinacion via shared task list</td>
+            <td class="py-2 px-3">Migrar un modulo: schema, API, tests, docs coordinados</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-3 text-agent-highlight font-bold">Sub-agents</td>
+            <td class="py-2 px-3">Subtareas delegadas desde una sesion principal</td>
+            <td class="py-2 px-3">Pedir al reviewer que analice un archivo especifico</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
-  <!-- Timer + BranchingScenario -->
-  <section class="mb-10">
-    {#if !showScenario}
-      <div class="card bg-agent-dark border-agent-warning/30 text-center">
-        <span class="text-4xl block mb-3">&#9888;&#65039;</span>
-        <h3 class="text-lg font-bold text-agent-warning mb-2">Simulacion: Incidente en Produccion a las 3 AM</h3>
-        <p class="text-agent-muted mb-4 text-sm">Tienes 8 minutos para diagnosticar y resolver un incidente critico en tu sistema multi-agente. Si se acaba el tiempo, perderas puntos.</p>
-        <button onclick={() => showScenario = true} class="btn-primary">
-          Iniciar incidente (8 minutos)
-        </button>
+  <!-- ================================================================== -->
+  <!-- SECTION 6: Plugins and Ecosystem -->
+  <!-- ================================================================== -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Plugins y Ecosistema</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Claude Code no existe en el vacio. Un ecosistema creciente de herramientas, MCP servers, y recursos de terceros extiende sus capacidades. Conocer las opciones y saber evaluar su seguridad es parte del skillset del Agent Architect.
+    </p>
+
+    <div class="space-y-4 mb-6">
+      <div class="card bg-agent-dark border-l-4 border-l-agent-accent">
+        <h4 class="text-agent-accent font-bold text-sm mb-2">awesome-claude-code</h4>
+        <p class="text-sm text-agent-muted">Lista curada en GitHub con MCP servers, hooks, skills, commands, y agentes creados por la comunidad. Es el punto de partida para descubrir extensiones. Incluye categorias como: developer tools, database, documentation, testing, CI/CD, y mas. <strong class="text-agent-text">Tip</strong>: filtra por estrellas y fecha de ultima actualizacion para encontrar las herramientas mantenidas.</p>
       </div>
+
+      <div class="card bg-agent-dark border-l-4 border-l-agent-success">
+        <h4 class="text-agent-success font-bold text-sm mb-2">compound-engineering</h4>
+        <p class="text-sm text-agent-muted">Herramientas para workflows de ingenieria complejos con Claude Code. Incluye patrones para CI/CD agentico, review automatizado, y pipelines de calidad. Util para equipos que quieren ir mas alla del uso basico y crear flujos de trabajo sofisticados.</p>
+      </div>
+
+      <div class="card bg-agent-dark border-l-4 border-l-agent-warning">
+        <h4 class="text-agent-warning font-bold text-sm mb-2">ContextKit</h4>
+        <p class="text-sm text-agent-muted">MCP server especializado en gestion de contexto mejorado. Permite cargar archivos, snippets, y conocimiento de forma estructurada. Complementa las skills nativas de Claude Code con capacidades adicionales de inyeccion de contexto.</p>
+      </div>
+    </div>
+
+    <!-- Security -->
+    <h3 class="text-lg font-bold text-agent-text mb-3">Seguridad al Extender el Workspace</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Antes de instalar cualquier extension, aplica estas tres verificaciones:
+    </p>
+
+    <div class="space-y-3 mb-6">
+      <div class="flex items-start gap-3">
+        <span class="text-agent-danger font-bold shrink-0">1.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Revisa el codigo fuente</strong> — Un MCP server tiene acceso a todo lo que su proceso puede ver: archivos, variables de entorno, red. Lee el codigo antes de instalarlo. Si esta ofuscado o no es open source, no lo instales.</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="text-agent-danger font-bold shrink-0">2.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Permisos minimos</strong> — Si un MCP server solo necesita leer archivos, no le des acceso a red. Si solo necesita una base de datos, no le des acceso a todo el filesystem. Principio de least privilege.</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="text-agent-danger font-bold shrink-0">3.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Sandboxing</strong> — Usa Docker o contenedores para aislar MCP servers de terceros. Claude Code soporta sandbox mode que limita lo que los procesos hijos pueden hacer. Activalo para servers que no son de tu organizacion.</p>
+      </div>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-danger font-bold mb-1">&#128680; El riesgo real</p>
+      <p class="text-sm text-agent-muted">Un MCP server malicioso puede: leer tus SSH keys (<strong class="text-agent-text">~/.ssh/</strong>), leer tu archivo .env con API keys, enviar archivos de tu proyecto a un servidor externo, o ejecutar codigo arbitrario en tu maquina. No es teoria: estos vectores de ataque son reales. <strong class="text-agent-text">Trata cada MCP server como codigo que corre con TUS permisos.</strong></p>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- INTERACTIVE FLOW -->
+  <!-- ================================================================== -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Diagrama Interactivo: Arquitectura del Workspace</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Explora como se conectan los componentes del workspace profesional. Haz clic en cada nodo para entender su rol, y luego activa el modo challenge para poner a prueba tu comprension.
+    </p>
+
+    {#if !showFlow}
+      <button class="btn-primary w-full" onclick={() => showFlow = true}>
+        &#9654; Iniciar Diagrama Interactivo
+      </button>
     {:else}
-      <div class="mb-4">
-        <Timer duration={480} onTimeUp={handleTimeUp} autoStart={true} label="Tiempo para resolver el incidente" />
-      </div>
-      {#if timedOut}
-        <div class="card bg-agent-danger/10 border-agent-danger/30 mb-4 fade-in">
-          <p class="text-sm text-agent-danger font-bold">Se acabo el tiempo. En produccion, cada minuto sin resolver cuesta dinero y confianza. Se aplicara una penalizacion de -3 puntos al resultado final.</p>
-        </div>
-      {/if}
-      <BranchingScenario
-        nodes={scenarioNodes}
-        startId="start"
-        title="Incidente: Sistema Multi-Agente Fuera de Control"
-        onComplete={handleScenarioComplete}
+      <InteractiveFlow
+        nodes={flowNodes}
+        edges={flowEdges}
+        title="Workspace del Agent Architect"
+        challenges={flowChallenges}
+        onComplete={handleFlowComplete}
       />
     {/if}
   </section>
 
-  <!-- Completion message -->
+  <!-- ================================================================== -->
+  <!-- QUIZ -->
+  <!-- ================================================================== -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Quiz: Workspace Profesional</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      5 preguntas sobre worktrees, configuracion del workspace, patrones multi-sesion, y el caso incident.io. Cada pregunta tiene una sola respuesta correcta con explicacion detallada.
+    </p>
+
+    {#if !showQuiz}
+      <button class="btn-primary w-full" onclick={() => showQuiz = true}>
+        &#9654; Iniciar Quiz (5 preguntas)
+      </button>
+    {:else}
+      <Quiz questions={quizQuestions} onComplete={handleQuizComplete} />
+    {/if}
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- COMPLETION -->
+  <!-- ================================================================== -->
   {#if completed}
-    <div class="card bg-agent-success/10 border-agent-success/30 text-center mb-8 fade-in">
-      <span class="text-4xl block mb-3">&#127981;</span>
-      <h3 class="text-xl font-bold text-agent-success mb-2">Modulo completado!</h3>
+    <div class="card bg-agent-success/10 border-agent-success/30 mb-8 fade-in text-center">
+      <span class="text-4xl block mb-2">&#127942;</span>
+      <h2 class="text-xl font-bold text-agent-text mb-2">Modulo Completado</h2>
       <p class="text-agent-muted">
-        {#if timedOut}
-          Resolviste el incidente pero se te acabo el tiempo. En produccion, la velocidad es critica. Practica la toma de decisiones rapida bajo presion.
-        {:else}
-          Ahora sabes como llevar agentes a produccion con observabilidad, gestion de costos, y patrones de resiliencia. La diferencia entre una demo y un sistema real es exactamente esto.
-        {/if}
+        Ya tienes las bases para configurar un workspace profesional de Claude Code. Desde el multiplexer hasta los worktrees, los agentes custom y los MCP servers, cada pieza del entorno potencia tu productividad como Agent Architect.
       </p>
     </div>
   {/if}
 
-  <!-- Sources -->
+  <!-- ================================================================== -->
+  <!-- SOURCES + NAV -->
+  <!-- ================================================================== -->
   <SourcesSection sources={mod.sources} />
-
-  <!-- Nav -->
   <ModuleNav currentModule={MODULE_ID} />
 </div>
 
-<!-- Vocabulary Float -->
+<!-- ================================================================== -->
+<!-- FLOATING COMPONENTS (outside main div) -->
+<!-- ================================================================== -->
 <VocabularyFloat moduleId={MODULE_ID} />
 
-<!-- Badge Notification -->
 {#if showBadge && earnedBadge}
   <BadgeNotification badge={earnedBadge} onClose={() => showBadge = false} />
 {/if}

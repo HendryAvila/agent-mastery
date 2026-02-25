@@ -1,7 +1,8 @@
 <script lang="ts">
   import { courseStore, allBadges } from '$lib/stores/course';
   import { modules } from '$lib/data/modules';
-  import BranchingScenario from '$lib/components/BranchingScenario.svelte';
+  import Quiz from '$lib/components/Quiz.svelte';
+  import InteractiveFlow from '$lib/components/InteractiveFlow.svelte';
   import ModuleNav from '$lib/components/ModuleNav.svelte';
   import SourcesSection from '$lib/components/SourcesSection.svelte';
   import VocabularyFloat from '$lib/components/VocabularyFloat.svelte';
@@ -14,878 +15,1209 @@
   let completed = $state(false);
   let showBadge = $state(false);
   let earnedBadge = $state<Badge | null>(null);
-  let showScenario = $state(false);
+  let showQuiz = $state(false);
+  let showFlow = $state(false);
 
   courseStore.startModule(MODULE_ID);
 
-  // ─── BranchingScenario: Design an Orchestration ───
-  const scenarioNodes: Record<string, { id: string; narrative: string; choices?: { text: string; nextId: string; points: number; feedback?: string; }[]; outcome?: { title: string; description: string; score: number; maxScore: number; grade: 'excellent' | 'good' | 'needs-work' | 'critical'; lessons: string[]; }; }> = {
-    start: {
-      id: 'start',
-      narrative: 'Tu empresa quiere construir un sistema de IA que haga code review automatizado de Pull Requests. El sistema debe:\n\n1. Analizar la calidad del codigo (estilo, complejidad, DRY)\n2. Verificar seguridad (vulnerabilidades, secrets expuestos)\n3. Comprobar que los tests cubren los cambios\n4. Escribir un resumen de review con recomendaciones\n\nTu primera decision: como organizas los agentes?',
-      choices: [
-        { text: 'Un orquestador central que asigna tareas a 4 workers especializados (calidad, seguridad, tests, resumen)', nextId: 'orch-worker', points: 3, feedback: 'Excelente! El patron Orchestrator-Worker es ideal: un agente central descompone la tarea y 4 especialistas trabajan en paralelo.' },
-        { text: 'Un pipeline secuencial: calidad -> seguridad -> tests -> resumen, donde cada agente pasa su resultado al siguiente', nextId: 'pipeline', points: 1, feedback: 'Funciona pero es suboptimo. Los primeros 3 analisis son independientes: no necesitan esperar uno al otro. Los estas forzando a ser secuenciales.' },
-        { text: 'Un solo agente que hace todo: analiza calidad, seguridad, tests y escribe el resumen', nextId: 'single', points: 0, feedback: 'Un solo agente para 4 tareas especializadas? Demasiada responsabilidad, contexto saturado, y si falla en una tarea, falla todo.' },
-        { text: 'Cada agente decide a quien pasar el PR usando handoffs sin coordinador central', nextId: 'handoff', points: 1, feedback: 'Posible, pero sin coordinador, quien decide el orden? Quien combina los resultados? Los handoffs sin estructura son impredecibles.' }
-      ]
-    },
-    'orch-worker': {
-      id: 'orch-worker',
-      narrative: 'Elegiste Orchestrator-Worker. El orquestador descompone la tarea y asigna a 4 workers. Ahora: los analisis de calidad, seguridad y tests son INDEPENDIENTES entre si (no necesitan el resultado del otro). Como los ejecutas?',
-      choices: [
-        { text: 'En paralelo: los 3 workers de analisis corren simultaneamente, y cuando los 3 terminan, el worker de resumen sintetiza los resultados', nextId: 'parallel-done', points: 3, feedback: 'Perfecto! Como los analisis son independientes, el paralelismo reduce el tiempo total dramaticamente. El resumen espera a que todos terminen para tener la vision completa.' },
-        { text: 'Secuencial: uno por uno para mantener el control y ver como avanza', nextId: 'seq-done', points: 1, feedback: 'Funciona pero desperdicias tiempo. Si cada analisis toma 30 segundos, en paralelo son 30 segundos totales vs 90 secuenciales. En produccion, la diferencia importa.' },
-        { text: 'En paralelo pero el resumen empieza a escribirse en cuanto cualquier analisis termina (streaming)', nextId: 'stream-done', points: 2, feedback: 'Idea interesante pero arriesgada. Si el resumen empieza sin la informacion completa, puede perder hallazgos criticos que llegan despues. Mejor esperar a que todos terminen.' }
-      ]
-    },
-    pipeline: {
-      id: 'pipeline',
-      narrative: 'Elegiste Pipeline secuencial. Ahora: el agente de seguridad encontro 3 vulnerabilidades criticas. En un pipeline, el siguiente agente (tests) recibe el resultado. Que deberia pasar?',
-      choices: [
-        { text: 'El pipeline continua normalmente: tests analiza cobertura y el resumen incluye las vulnerabilidades en la seccion de seguridad', nextId: 'pipeline-continue', points: 2, feedback: 'Razonable. El pipeline es predecible y cada agente agrega su analisis. El resumen final tiene toda la informacion.' },
-        { text: 'Se deberia detener el pipeline inmediatamente y rechazar el PR por las vulnerabilidades criticas', nextId: 'pipeline-stop', points: 1, feedback: 'Rechazar sin review completo es agresivo. Las vulnerabilidades criticas son importantes, pero el equipo merece ver el review completo para tomar una decision informada.' },
-        { text: 'Convertir a un patron Orchestrator-Worker en este punto porque el pipeline no es optimo', nextId: 'pipeline-switch', points: 1, feedback: 'Cambiar de patron en medio de la ejecucion anade complejidad innecesaria. Si el pipeline no es optimo, la decision se toma en el diseno, no en runtime.' }
-      ]
-    },
-    single: {
-      id: 'single',
-      narrative: 'Elegiste un solo agente. Despues de analizar calidad y seguridad, el context window esta al 70% y el agente empieza a perder precision en el analisis de tests. Que haces?',
-      choices: [
-        { text: 'Dividir en multiples agentes especializados - debiste hacer esto desde el principio', nextId: 'single-fix', points: 2, feedback: 'Correcto. Un agente unico no escala con la complejidad. Especializar es la solucion, pero debiste disenar asi desde el inicio en vez de descubrirlo en produccion.' },
-        { text: 'Aumentar el context window usando un modelo con mas tokens', nextId: 'single-more-tokens', points: 0, feedback: 'Tirar dinero al problema no es ingenieria. Ademas, mas tokens no garantizan mejor precision: el "lost in the middle" problem empeora con contextos muy largos.' }
-      ]
-    },
-    handoff: {
-      id: 'handoff',
-      narrative: 'Elegiste Handoffs descentralizados. El agente de calidad termino y hace handoff al agente de seguridad. Pero el agente de seguridad decide que necesita el resultado de tests primero. Deadlock: seguridad espera tests, tests no ha empezado. Como resuelves?',
-      choices: [
-        { text: 'Agregar un coordinador que defina el orden de ejecucion - basicamente, volver a Orchestrator-Worker', nextId: 'handoff-fix', points: 2, feedback: 'Exacto. Cuando los handoffs descentralizados generan deadlocks, la solucion es un coordinador. Llegaste al Orchestrator-Worker por necesidad - debiste empezar ahi.' },
-        { text: 'Hacer que cada agente sea independiente y no dependa de otros', nextId: 'handoff-independent', points: 1, feedback: 'Si son independientes no necesitan handoffs en primer lugar. Entonces lo que quieres es paralelo con orquestador, no handoffs.' }
-      ]
-    },
-    'parallel-done': {
-      id: 'parallel-done',
-      narrative: 'Los 3 analisis corrieron en paralelo y el resumen los sintetizo. Pero hay un problema: el agente de calidad dice "refactorizar funcion X" y el agente de seguridad dice "no tocar funcion X, tiene validacion critica de input". Contradiccion. Como la manejas?',
-      choices: [
-        { text: 'El orquestador detecta la contradiccion, lanza un agente "resolver-conflictos" que analiza ambas recomendaciones y genera una recomendacion unificada', nextId: 'conflict-resolver', points: 3, feedback: 'Excelente! Detectar y resolver contradicciones es una responsabilidad natural del orquestador. Un agente dedicado a resolver conflictos con contexto de ambos analisis es la solucion correcta.' },
-        { text: 'Priorizar siempre seguridad sobre calidad: ignorar la recomendacion de refactoring', nextId: 'conflict-priority', points: 2, feedback: 'Seguridad primero es un buen principio, pero ignorar completamente la recomendacion de calidad sin analizar es agresivo. La funcion puede tener ambos problemas y necesitar una solucion que atienda los dos.' },
-        { text: 'Incluir ambas recomendaciones contradictorias en el resumen y dejar que el desarrollador decida', nextId: 'conflict-user', points: 1, feedback: 'Funciona pero es lazy. El sistema deberia resolver contradicciones en vez de pasar el problema al usuario. Si el review automatizado no puede resolver conflictos, pierde mucho valor.' }
-      ]
-    },
-    'seq-done': {
-      id: 'seq-done',
-      narrative: 'El pipeline secuencial funciona pero es lento. Un PR que deberia revisarse en 30 segundos toma 2 minutos. Tu equipo se queja. Como optimizas?',
-      choices: [
-        { text: 'Cambiar a Orchestrator-Worker con ejecucion paralela para los analisis independientes', nextId: 'seq-optimize', points: 3, feedback: 'Correcto! La optimizacion natural es identificar las tareas independientes y paralelizarlas. Calidad, seguridad y tests son independientes: correrlos en paralelo reduce dramaticamente el tiempo.' },
-        { text: 'Cachear los resultados de PRs similares para no recalcular', nextId: 'seq-cache', points: 1, feedback: 'El caching ayuda pero no resuelve el problema fundamental: las tareas independientes no deberian ser secuenciales. La mejora seria marginal comparada con paralelizar.' }
-      ]
-    },
-    'stream-done': {
-      id: 'stream-done',
-      narrative: 'Decidiste que el resumen se escribiera con informacion parcial. En produccion, el resumen a veces omite hallazgos de seguridad criticos porque se genero antes de que el analisis de seguridad terminara. Como arreglas?',
-      choices: [
-        { text: 'Esperar a que TODOS los analisis terminen antes de generar el resumen, aunque sea un poco mas lento', nextId: 'stream-fix', points: 2, feedback: 'Correcto. La completitud es mas importante que la velocidad en un code review. Un resumen que omite vulnerabilidades criticas es peor que un resumen lento.' },
-        { text: 'Hacer que el resumen se actualice incrementalmente cuando llegan nuevos resultados', nextId: 'stream-incremental', points: 1, feedback: 'Interesante pero complejo. El agente de resumen tendria que regenerar parcialmente con cada resultado nuevo, lo que consume mas tokens y puede crear inconsistencias.' }
-      ]
-    },
-    'pipeline-continue': {
-      id: 'pipeline-continue',
-      narrative: 'El pipeline completo funciona. Ahora quieres agregar un 5to paso: verificar que el PR sigue las convenciones del proyecto (.editorconfig, naming, etc). Donde lo pones en el pipeline?',
-      choices: [
-        { text: 'Antes del analisis de calidad, porque las convenciones son prerequisito para evaluar calidad', nextId: 'outcome-good-pipeline', points: 2, feedback: 'Razonable! Las convenciones son la base sobre la que se evalua calidad. Ponerlas primero tiene sentido logico.' },
-        { text: 'Esto seria mas facil con un Orchestrator-Worker donde simplemente agrego un 5to worker en paralelo', nextId: 'outcome-good-pipeline', points: 3, feedback: 'Excelente reflexion! Agregar pasos a un pipeline es rigido. Con un orquestador, simplemente agregas un worker mas sin restructurar todo.' }
-      ]
-    },
-    'pipeline-stop': {
-      id: 'pipeline-stop',
-      narrative: 'Rechazaste el PR automaticamente. El equipo se queja: una de las "vulnerabilidades criticas" era un falso positivo del agente de seguridad. Ahora no confian en el sistema. Que haces?',
-      choices: [
-        { text: 'Agregar un agente de verificacion que confirme las vulnerabilidades antes de rechazar automaticamente', nextId: 'outcome-needs-work', points: 2, feedback: 'Buena idea. Un segundo chequeo reduce falsos positivos. Pero ahora tienes un sistema mas complejo que si hubieras hecho un review completo desde el principio.' },
-        { text: 'Nunca rechazar automaticamente: siempre mostrar el review completo y dejar la decision al humano', nextId: 'outcome-needs-work', points: 1, feedback: 'Conservador pero valido. Sin embargo, pierde el valor de la automatizacion. El ideal es un review completo que RECOMIENDE, no que decida unilateralmente.' }
-      ]
-    },
-    'pipeline-switch': {
-      id: 'pipeline-switch',
-      narrative: 'Intentaste cambiar de patron en runtime. El codigo se volvio espagueti: mitad pipeline, mitad orquestador. Cual es la leccion?',
-      choices: [
-        { text: 'El patron de orquestacion se elige en el diseno, no en la ejecucion. Voy a redisenar con Orchestrator-Worker desde cero.', nextId: 'outcome-needs-work', points: 2, feedback: 'Correcto! Los patrones de orquestacion son decisiones de arquitectura que se toman en tiempo de diseno. Cambiar en runtime crea complejidad innecesaria.' }
-      ]
-    },
-    'single-fix': {
-      id: 'single-fix',
-      narrative: 'Decidiste dividir en agentes especializados. Pero ya tienes codigo de produccion con un solo agente y usuarios activos. Como migras?',
-      choices: [
-        { text: 'Migrar gradualmente: extraer una responsabilidad a la vez, empezando por seguridad (la mas critica)', nextId: 'outcome-needs-work', points: 2, feedback: 'Correcto. Migracion gradual reduce riesgo. Empezar por seguridad tiene sentido porque es la mas independiente y la mas critica.' }
-      ]
-    },
-    'single-more-tokens': {
-      id: 'single-more-tokens',
-      narrative: 'Aumentaste los tokens pero el agente ahora es 5x mas caro y todavia pierde precision en analisis largos por el "lost in the middle" problem. El CTO pregunta por que el costo se fue al cielo.',
-      choices: [
-        { text: 'Reconocer que un solo agente no escala y proponer la arquitectura multi-agente correcta', nextId: 'outcome-critical', points: 1, feedback: 'Al menos reconoces el error. Pero llegaste aca despues de gastar dinero y tiempo. La leccion: disenar bien desde el inicio es mas barato que parchear.' }
-      ]
-    },
-    'handoff-fix': {
-      id: 'handoff-fix',
-      narrative: 'Agregaste un coordinador para resolver los deadlocks. Ahora el sistema funciona pero es basicamente un Orchestrator-Worker que construiste por partes. Reflexion final?',
-      choices: [
-        { text: 'Deberia haber analizado las dependencias entre tareas ANTES de elegir el patron. Si las tareas son independientes, necesito un coordinador desde el inicio.', nextId: 'outcome-good-handoff', points: 2, feedback: 'Excelente reflexion! El analisis de dependencias es el primer paso antes de elegir un patron. Handoffs descentralizados funcionan cuando el flujo es lineal y claro, no cuando hay tareas paralelas.' }
-      ]
-    },
-    'handoff-independent': {
-      id: 'handoff-independent',
-      narrative: 'Si los agentes son independientes, no necesitan handoffs. Entonces necesitas un orquestador que lance, coordine y combine resultados.',
-      choices: [
-        { text: 'Entendido: para tareas independientes, Orchestrator-Worker con ejecucion paralela es el patron correcto', nextId: 'outcome-good-handoff', points: 2, feedback: 'Correcto! Llegaste a la conclusion correcta a traves de la experiencia. Eso es aprendizaje real.' }
-      ]
-    },
-    'conflict-resolver': {
-      id: 'conflict-resolver',
-      narrative: 'Tu agente de resolucion de conflictos analizo ambas recomendaciones y determino: "La funcion X debe ser refactorizada MANTENIENDO la validacion de input como la primera operacion. Ambas recomendaciones son validas y no son mutuamente excluyentes." El review final es preciso y completo. Cual patron final usaste?',
-      choices: [
-        { text: 'Orchestrator-Worker con ejecucion paralela y un paso de resolucion de conflictos: el patron mas robusto para este tipo de problema', nextId: 'outcome-excellent', points: 3, feedback: 'Perfecto! Diseñaste una arquitectura robusta: orquestador central, workers paralelos para analisis independientes, y un mecanismo para resolver contradicciones. Produccion-ready.' }
-      ]
-    },
-    'conflict-priority': {
-      id: 'conflict-priority',
-      narrative: 'Priorizar seguridad funciono en este caso. Pero en otro PR, la recomendacion de calidad era la correcta y la de seguridad era un falso positivo. Necesitas una solucion mas inteligente.',
-      choices: [
-        { text: 'Agregar un agente de resolucion de conflictos que analice ambas recomendaciones en contexto', nextId: 'outcome-good-orch', points: 2, feedback: 'Ahora si! Un agente dedicado a resolver contradicciones con contexto completo es la solucion correcta. Mejor tarde que nunca.' }
-      ]
-    },
-    'conflict-user': {
-      id: 'conflict-user',
-      narrative: 'Los desarrolladores se quejan de que el review tiene recomendaciones contradictorias y no saben cual seguir. El sistema pierde credibilidad.',
-      choices: [
-        { text: 'Necesito un paso de resolucion de conflictos antes de presentar el review final', nextId: 'outcome-good-orch', points: 1, feedback: 'Correcto. Un review profesional no tiene contradicciones. El orquestador debe detectar y resolver conflictos antes de entregar el resultado final.' }
-      ]
-    },
-    'seq-optimize': {
-      id: 'seq-optimize',
-      narrative: 'Migraste a Orchestrator-Worker con paralelismo. El tiempo bajo de 2 minutos a 40 segundos. El equipo esta feliz.',
-      choices: [
-        { text: 'La leccion: analizar dependencias entre tareas es clave para elegir entre secuencial y paralelo', nextId: 'outcome-good-orch', points: 2, feedback: 'Exacto! El patron correcto depende de las dependencias entre tareas. Si son independientes, paralelo. Si hay dependencias, secuencial o parcialmente paralelo.' }
-      ]
-    },
-    'seq-cache': {
-      id: 'seq-cache',
-      narrative: 'El caching ayudo un poco pero los PRs unicos siguen siendo lentos. La solucion fundamental sigue siendo paralelizar las tareas independientes.',
-      choices: [
-        { text: 'Combinar caching con paralelismo: cachear resultados de analisis de archivos que no cambiaron Y paralelizar los analisis de archivos nuevos', nextId: 'outcome-good-orch', points: 2, feedback: 'Buena combinacion! Caching + paralelismo es poderoso. Pero la mejora principal viene del paralelismo, el caching es la cereza.' }
-      ]
-    },
-    'stream-fix': {
-      id: 'stream-fix',
-      narrative: 'Ahora el resumen espera a que todos terminen. Funciona correctamente pero podrias haber evitado el problema disenando mejor desde el inicio.',
-      choices: [
-        { text: 'La leccion: en pipelines de datos, la completitud de la informacion antes de sintetizar es critica', nextId: 'outcome-good-orch', points: 2, feedback: 'Correcto! "garbage in, garbage out" aplica tambien a informacion incompleta. El agente de sintesis necesita ALL data antes de generar el resumen final.' }
-      ]
-    },
-    'stream-incremental': {
-      id: 'stream-incremental',
-      narrative: 'El resumen incremental consume 3x mas tokens porque se regenera parcialmente con cada resultado nuevo. Ademas, a veces las versiones intermedias contradicen la version final.',
-      choices: [
-        { text: 'Simplificar: esperar a que todo termine y generar el resumen una sola vez', nextId: 'outcome-good-orch', points: 1, feedback: 'KISS - Keep It Simple. Una generacion completa es mas barata y consistente que multiples generaciones incrementales.' }
-      ]
-    },
-    // ─── OUTCOMES ───
-    'outcome-excellent': {
-      id: 'outcome-excellent',
-      narrative: '',
-      outcome: {
-        title: 'Arquitecto de Orquestacion',
-        description: 'Disenaste un sistema robusto con el patron correcto, ejecucion paralela, y resolucion de conflictos. Produccion-ready.',
-        score: 0,
-        maxScore: 18,
-        grade: 'excellent',
-        lessons: [
-          'Orchestrator-Worker es el patron mas versatil para tareas con analisis independientes',
-          'Las tareas independientes DEBEN ejecutarse en paralelo para minimizar latencia',
-          'Un sistema multi-agente necesita un mecanismo para detectar y resolver contradicciones',
-          'El patron se elige en el diseno, basandose en el analisis de dependencias entre tareas',
-          'El agente de sintesis necesita resultados COMPLETOS antes de generar el output final'
-        ]
-      }
-    },
-    'outcome-good-orch': {
-      id: 'outcome-good-orch',
-      narrative: '',
-      outcome: {
-        title: 'Buen Enfoque',
-        description: 'Llegaste a una solucion funcional, aunque con algunos desvios. Entiendes los patrones pero necesitas afinar la seleccion inicial.',
-        score: 0,
-        maxScore: 18,
-        grade: 'good',
-        lessons: [
-          'Analizar dependencias entre tareas ANTES de elegir el patron de orquestacion',
-          'Orchestrator-Worker con paralelismo es optimo para analisis independientes',
-          'Las contradicciones entre agentes deben resolverse antes de entregar resultados',
-          'El caching y el paralelismo son optimizaciones complementarias',
-          'La completitud de datos es prerequisito para la sintesis'
-        ]
-      }
-    },
-    'outcome-good-pipeline': {
-      id: 'outcome-good-pipeline',
-      narrative: '',
-      outcome: {
-        title: 'Pipeline Funcional',
-        description: 'Tu pipeline funciona pero no es optimo. Las tareas independientes deberian correr en paralelo, no en secuencia.',
-        score: 0,
-        maxScore: 18,
-        grade: 'good',
-        lessons: [
-          'Pipeline secuencial es simple y predecible, pero suboptimo para tareas independientes',
-          'Agregar pasos a un pipeline es mas rigido que agregar workers a un orquestador',
-          'Identificar dependencias entre tareas determina si usar secuencial o paralelo',
-          'La velocidad del pipeline esta limitada por la tarea mas lenta'
-        ]
-      }
-    },
-    'outcome-good-handoff': {
-      id: 'outcome-good-handoff',
-      narrative: '',
-      outcome: {
-        title: 'Aprendiste por Experiencia',
-        description: 'Empezaste con handoffs descentralizados y descubriste que necesitabas un coordinador. La leccion esta aprendida.',
-        score: 0,
-        maxScore: 18,
-        grade: 'good',
-        lessons: [
-          'Handoffs descentralizados funcionan para flujos lineales y claros',
-          'Sin coordinador, tareas paralelas pueden generar deadlocks',
-          'El analisis de dependencias es obligatorio antes de elegir un patron',
-          'Orchestrator-Worker es el patron por defecto para tareas independientes'
-        ]
-      }
-    },
-    'outcome-needs-work': {
-      id: 'outcome-needs-work',
-      narrative: '',
-      outcome: {
-        title: 'Necesitas Mejorar',
-        description: 'Tomaste decisiones que crearon problemas evitables. La buena noticia: ahora entiendes POR QUE los patrones existen.',
-        score: 0,
-        maxScore: 18,
-        grade: 'needs-work',
-        lessons: [
-          'Un solo agente no escala cuando la tarea tiene multiples responsabilidades',
-          'Los patrones de orquestacion se eligen en el diseno, no se descubren en produccion',
-          'Cambiar de patron en runtime genera codigo espagueti',
-          'Analizar dependencias entre subtareas es el primer paso del diseno multi-agente',
-          'Mas tokens no es la solucion a problemas de arquitectura'
-        ]
-      }
-    },
-    'outcome-critical': {
-      id: 'outcome-critical',
-      narrative: '',
-      outcome: {
-        title: 'Error Critico de Arquitectura',
-        description: 'Un solo agente para multiples tareas especializadas y tirar dinero al problema no es ingenieria. Repasa los patrones.',
-        score: 0,
-        maxScore: 18,
-        grade: 'critical',
-        lessons: [
-          'NUNCA uses un solo agente para multiples responsabilidades complejas',
-          'Aumentar tokens no resuelve problemas de arquitectura',
-          'El "lost in the middle" problem empeora con contextos muy largos',
-          'Disenar la arquitectura correcta desde el inicio es MUCHO mas barato que parchear',
-          'Cada agente debe tener una responsabilidad clara y acotada (Single Responsibility)'
-        ]
-      }
-    }
-  };
+  // ─── InteractiveFlow: .claude/ Ecosystem ───
+  const flowNodes = [
+    { id: 'dotclaude', label: '.claude/', description: 'El directorio raiz de configuracion de Claude Code. Vive en la raiz de tu proyecto (o en ~/). Contiene settings.json, agents/, skills/, commands/ y rules/. Es el equivalente a un .vscode/ o .github/ pero para tu agente IA. Todo lo que define como se comporta Claude Code en tu proyecto esta aqui.', icon: '\u{1F4C1}', x: 50, y: 10 },
+    { id: 'settings', label: 'settings.json', description: 'El archivo de configuracion central. Define permisos (allow/ask/deny con patrones glob), variables de entorno, MCP servers, y la configuracion de hooks. Existe en 3 niveles: proyecto (.claude/settings.json), local (.claude/settings.local.json gitignored), y usuario (~/.claude/settings.json). Los niveles se fusionan con precedencia local > proyecto > usuario.', icon: '\u2699\uFE0F', x: 15, y: 30 },
+    { id: 'hooks', label: 'Hooks System', description: 'El sistema de extension mas poderoso de Claude Code. 17 eventos (PreToolUse, PostToolUse, Notification, Stop, SubAgentStop, etc.) con 3 tipos de handler: command (ejecuta shell, stdout vuelve como contexto), prompt (envia a modelo como turno de usuario), agent (lanza sub-agente). Exit code 2 = BLOQUEAR la accion. Matchers filtran por nombre de herramienta con regex.', icon: '\u{1F517}', x: 85, y: 30 },
+    { id: 'skills', label: 'Skills', description: 'Expertise empaquetada en archivos SKILL.md con frontmatter YAML. Campos: name, description, user-invocable, disable-model-invocation, keep-context-instructions. Se invocan con /nombre o automaticamente por el modelo. Soportan contexto dinamico: $ARGUMENTS para input del usuario y `comando` (backticks) para inyectar output de shell en tiempo de carga.', icon: '\u{1F4DA}', x: 15, y: 65 },
+    { id: 'agents', label: 'Sub-Agents', description: 'Agentes dentro del agente, definidos en .claude/agents/. Built-in: Explore (Haiku, read-only, rapido y barato), Plan (hereda modelo, read-only, para arquitectura), general-purpose (todas las tools). Custom: archivo .md con frontmatter (model, allowed-tools, description) y body como system prompt. Cada sub-agente tiene su propio contexto aislado.', icon: '\u{1F916}', x: 85, y: 65 },
+    { id: 'permissions', label: 'Permisos', description: 'Modelo de seguridad de 3 niveles: allow (auto-ejecutar), ask (preguntar al usuario), deny (nunca permitir). Sintaxis: ToolName(pattern) con globs. Ejemplo: Bash(npm test) permite solo npm test. Edit("src/**/*.ts") permite editar solo TypeScript en src/. Resultado: 84% menos prompts de permisos con sandbox bien configurado.', icon: '\u{1F512}', x: 50, y: 50 },
+    { id: 'headless', label: 'Headless Mode', description: 'Claude Code sin interfaz, para CI/CD. claude -p "query" ejecuta un solo prompt y sale. Flags: --output-format text|json|stream-json, --max-turns N, --allowedTools tool1,tool2, --max-budget-usd N. Ideal para GitHub Actions, pipelines automatizados, y automatizacion de tareas recurrentes.', icon: '\u{1F4DF}', x: 50, y: 85 },
+    { id: 'commands', label: 'Commands', description: 'Slash commands simples definidos en .claude/commands/. Cada archivo .md es un template de prompt. El usuario escribe /nombre y el contenido se inyecta como prompt. Mas simple que skills: no tienen frontmatter complejo ni contexto dinamico. Ideal para acciones frecuentes y repetitivas como /review, /test, /deploy.', icon: '\u{1F4AC}', x: 30, y: 85 },
+    { id: 'rules', label: 'Rules', description: 'Reglas path-specific en .claude/rules/. Cada archivo .md tiene frontmatter YAML con globs que definen a que archivos aplica. Cuando Claude Code edita un archivo que matchea el glob, las reglas se inyectan automaticamente como contexto. Ideal para convenciones por carpeta: "en src/api/ siempre usa Zod para validacion".', icon: '\u{1F4CF}', x: 70, y: 85 }
+  ];
 
-  function handleScenarioComplete(score: number, maxScore: number) {
-    courseStore.completeModule(MODULE_ID, score, maxScore);
+  const flowEdges = [
+    { from: 'dotclaude', to: 'settings', label: 'Configuracion' },
+    { from: 'dotclaude', to: 'hooks', label: 'Eventos' },
+    { from: 'settings', to: 'permissions', label: 'Define permisos' },
+    { from: 'settings', to: 'hooks', label: 'Configura hooks' },
+    { from: 'hooks', to: 'agents', label: 'Puede lanzar' },
+    { from: 'hooks', to: 'skills', label: 'Puede invocar' },
+    { from: 'permissions', to: 'agents', label: 'Gate de seguridad' },
+    { from: 'permissions', to: 'headless', label: 'Restringe tools' },
+    { from: 'agents', to: 'skills', label: 'Usan skills' },
+    { from: 'dotclaude', to: 'commands', label: 'Slash commands' },
+    { from: 'dotclaude', to: 'rules', label: 'Path rules' }
+  ];
+
+  const flowChallenges = [
+    { question: 'Quieres que Claude Code auto-formatee el codigo cada vez que edita un archivo. Que componente del ecosistema usas?', targetNodeId: 'hooks', hint: 'Necesitas reaccionar a un evento (PostToolUse en Edit/Write) y ejecutar un comando shell.' },
+    { question: 'Tu equipo tiene convenciones diferentes para src/api/ (usa Zod) y src/components/ (usa Svelte 5 runes). Donde defines esas convenciones path-specific?', targetNodeId: 'rules', hint: 'Necesitas reglas que se apliquen solo cuando Claude Code toca archivos en paths especificos.' },
+    { question: 'Necesitas que Claude Code pueda ejecutar npm test pero NO npm publish. Donde configuras esto?', targetNodeId: 'permissions', hint: 'El sistema que define allow/ask/deny con patrones de herramientas.' },
+    { question: 'Quieres empaquetar tu framework de testing como expertise reutilizable que cualquier developer del equipo pueda invocar con un slash command. Que sistema usas?', targetNodeId: 'skills', hint: 'Expertise encapsulada con frontmatter YAML, invocable por el usuario o por el modelo automaticamente.' },
+    { question: 'Necesitas ejecutar Claude Code en un GitHub Action para revisar PRs automaticamente, sin interfaz de usuario. Que modo usas?', targetNodeId: 'headless', hint: 'El modo que permite ejecutar Claude Code desde la terminal con -p y flags de control.' }
+  ];
+
+  // ─── Quiz: Claude Code Deep Dive ───
+  const quizQuestions = [
+    {
+      question: 'Configuras un hook PreToolUse para el evento Bash. El script del hook hace una validacion y sale con exit code 2. Que sucede?',
+      options: [
+        { text: 'Claude Code procede normalmente y agrega el stdout del hook como contexto adicional', correct: false, explanation: 'Exit code 0 es el que permite proceder normalmente con stdout como contexto. Exit code 2 tiene un comportamiento completamente diferente.' },
+        { text: 'Claude Code BLOQUEA la ejecucion del comando Bash. La accion no se ejecuta y el modelo recibe una notificacion de bloqueo', correct: true, explanation: 'Correcto! Exit code 2 es el mecanismo de seguridad critico de los hooks: BLOQUEA la accion. Es asi como puedes prevenir que Claude Code toque archivos protegidos, ejecute comandos peligrosos, o acceda a paths sensibles. Exit 0 = proceder, Exit 2 = bloquear.' },
+        { text: 'Claude Code reinicia la sesion y vuelve a intentar la accion', correct: false, explanation: 'Los hooks no reinician sesiones. Son interceptores que permiten (exit 0) o bloquean (exit 2) acciones especificas.' },
+        { text: 'El hook falla silenciosamente y Claude Code ignora el resultado', correct: false, explanation: 'Los exit codes de hooks nunca se ignoran. Son parte critica del flujo de control. Un exit code no reconocido se trata como error, no como silencioso.' }
+      ],
+      source: 'Claude Code - Hooks Reference',
+      sourceUrl: 'https://code.claude.com/docs/en/hooks'
+    },
+    {
+      question: 'Necesitas crear un SKILL.md que el usuario pueda invocar con /deploy pero que el modelo NO pueda invocar automaticamente. Cual es el frontmatter correcto?',
+      codeBlock: 'Opcion A:\n---\nname: deploy\ndescription: Deploy to production\nuser-invocable: true\ndisable-model-invocation: true\n---\n\nOpcion B:\n---\nname: deploy\ndescription: Deploy to production\nuser-invocable: false\ndisable-model-invocation: false\n---\n\nOpcion C:\n---\nname: deploy\ndescription: Deploy to production\nallow-model-invocation: false\nuser-command: /deploy\n---',
+      options: [
+        { text: 'Opcion A: user-invocable: true + disable-model-invocation: true', correct: true, explanation: 'Correcto! user-invocable: true permite al usuario escribir /deploy. disable-model-invocation: true impide que el modelo lo invoque por su cuenta. Esta combinacion es ideal para acciones sensibles como deploy: quieres que el humano decida cuando ejecutarlo, no que el agente lo haga autonomamente.' },
+        { text: 'Opcion B: user-invocable: false + disable-model-invocation: false', correct: false, explanation: 'Esto es lo opuesto: el usuario NO puede invocarlo pero el modelo SI puede. user-invocable: false bloquea el slash command.' },
+        { text: 'Opcion C: allow-model-invocation y user-command son campos validos', correct: false, explanation: 'Esos campos no existen en el frontmatter de SKILL.md. Los campos correctos son user-invocable, disable-model-invocation y keep-context-instructions. Revisar la documentacion oficial es crucial.' }
+      ],
+      source: 'Claude Code - Skills',
+      sourceUrl: 'https://code.claude.com/docs/en/skills'
+    },
+    {
+      question: 'Claude Code tiene 3 sub-agentes built-in. Cual usarias para investigar la estructura de un codebase nuevo SIN riesgo de modificar nada?',
+      options: [
+        { text: 'El sub-agente general-purpose porque tiene acceso a todas las herramientas y puede hacer una investigacion completa', correct: false, explanation: 'General-purpose tiene TODAS las tools incluyendo Write, Edit y Bash. Si solo quieres investigar, darle acceso de escritura es riesgo innecesario. Principio de menor privilegio.' },
+        { text: 'El sub-agente Explore: usa Haiku (rapido y barato), tiene solo herramientas read-only, y devuelve un resumen al agente principal', correct: true, explanation: 'Correcto! Explore es perfecto para investigacion: (1) usa Claude Haiku = rapido y 10x mas barato, (2) solo tiene Read, Glob, Grep y otras tools de lectura = CERO riesgo de modificacion, (3) devuelve un resumen conciso que no contamina el contexto principal.' },
+        { text: 'El sub-agente Plan porque esta disenado para analizar antes de actuar', correct: false, explanation: 'Plan es read-only (correcto) pero hereda el modelo actual (Sonnet/Opus = mas caro). Explore usa Haiku, que es mucho mas barato para tareas de lectura rapida. Ademas, Plan esta disenado para planificacion arquitectonica, no para exploracion de codebase.' },
+        { text: 'No usarias sub-agentes, le pedirias al agente principal que explore', correct: false, explanation: 'Usar el agente principal para exploracion contamina su contexto con detalles de bajo nivel que no necesita. Los sub-agentes mantienen el contexto principal limpio al devolver solo un resumen.' }
+      ],
+      source: 'Claude Code - Sub-Agents',
+      sourceUrl: 'https://code.claude.com/docs/en/sub-agents'
+    },
+    {
+      question: 'Quieres que Claude Code pueda ejecutar npm test y npm run lint, pero NADA mas con Bash. Cual es la configuracion correcta de permisos?',
+      codeBlock: 'Opcion A (settings.json):\n"permissions": {\n  "allow": ["Bash(npm test)", "Bash(npm run lint)"],\n  "deny": ["Bash"]\n}\n\nOpcion B (settings.json):\n"permissions": {\n  "allow": ["Bash(npm test)", "Bash(npm run lint)"]\n}\n\nOpcion C (settings.json):\n"permissions": {\n  "allow": ["Bash(*)"]\n}',
+      options: [
+        { text: 'Opcion A: allow los comandos especificos + deny Bash general', correct: true, explanation: 'Correcto! Los permisos se evaluan de mas especifico a menos especifico. allow Bash(npm test) permite ese comando exacto. deny Bash bloquea todo lo demas. Sin el deny general, otros comandos Bash pasarian al modo "ask" por defecto, no serian bloqueados.' },
+        { text: 'Opcion B: solo allow sin deny es suficiente', correct: false, explanation: 'Sin deny Bash, cualquier otro comando Bash (como rm -rf o curl) caeria en el modo por defecto "ask" en vez de ser bloqueado. El usuario veria un prompt pero podria aceptar accidentalmente. El deny explicito es mas seguro.' },
+        { text: 'Opcion C: allow Bash(*) permite todo lo que necesites', correct: false, explanation: 'Bash(*) permite CUALQUIER comando Bash sin restriccion. Esto incluye rm -rf /, curl a endpoints maliciosos, etc. Es la configuracion mas peligrosa posible. Siempre usa patrones especificos.' }
+      ],
+      source: 'Claude Code - Permissions',
+      sourceUrl: 'https://code.claude.com/docs/en/permissions'
+    },
+    {
+      question: 'Necesitas ejecutar Claude Code en un GitHub Action para generar changelogs automaticos. Cual es el comando correcto para modo headless con limite de costo de $0.50 y maximo 5 iteraciones del agent loop?',
+      options: [
+        { text: 'claude -p "Generate changelog" --output-format json --max-turns 5 --max-budget-usd 0.50', correct: true, explanation: 'Correcto! -p activa el modo headless (single prompt, no interactivo). --output-format json da output estructurado para parsing en CI. --max-turns 5 limita las iteraciones del agent loop. --max-budget-usd 0.50 pone un tope de costo. Esta combinacion es ideal para CI/CD: predecible, limitada y parseable.' },
+        { text: 'claude --headless "Generate changelog" --format json --iterations 5 --budget 0.50', correct: false, explanation: 'Los flags no existen. No hay --headless (se usa -p), no hay --format (se usa --output-format), no hay --iterations (se usa --max-turns), no hay --budget (se usa --max-budget-usd). Los nombres exactos importan en CLI.' },
+        { text: 'claude -p "Generate changelog" --max-budget-usd 0.50 (los otros flags no son necesarios)', correct: false, explanation: 'Sin --max-turns, el agente podria iterar indefinidamente (hasta el budget). Sin --output-format, el output es texto plano que es dificil de parsear en un pipeline de CI. Ambos flags son importantes para automatizacion predecible.' },
+        { text: 'No se puede usar Claude Code en CI/CD, necesitas la API directamente', correct: false, explanation: 'Claude Code tiene soporte oficial para CI/CD via modo headless (-p) y una GitHub Action oficial (anthropics/claude-code-action). Es un caso de uso principal, no un hack.' }
+      ],
+      source: 'Claude Code - Headless Mode',
+      sourceUrl: 'https://code.claude.com/docs/en/headless'
+    }
+  ];
+
+  function handleFlowComplete(score: number, total: number) {
+    // Flow does not trigger completion, only the quiz does
+  }
+
+  function handleQuizComplete(score: number, total: number) {
+    courseStore.completeModule(MODULE_ID, score, total);
     completed = true;
-    if (score >= 8) {
-      const badge = courseStore.unlockBadge('orchestrator');
-      if (badge) {
-        earnedBadge = badge;
-        showBadge = true;
-      }
+    const badge = courseStore.unlockBadge('deep-diver');
+    if (badge) {
+      earnedBadge = badge;
+      showBadge = true;
     }
   }
 </script>
 
-<svelte:head>
-  <title>{mod.title} | Agent Mastery</title>
-</svelte:head>
-
 <div class="max-w-4xl mx-auto px-4 py-8">
+
   <!-- Header -->
-  <div class="mb-8 fade-in">
+  <header class="mb-10">
     <div class="flex items-center gap-3 mb-2">
       <span class="text-4xl">{mod.icon}</span>
       <div>
-        <span class="text-xs text-agent-accent uppercase tracking-wider font-bold">Modulo {MODULE_ID}</span>
-        <h1 class="text-3xl font-bold text-agent-text">{mod.title}</h1>
+        <p class="text-agent-accent text-sm font-mono tracking-wider uppercase">Modulo {MODULE_ID}</p>
+        <h1 class="text-3xl md:text-4xl font-bold text-agent-text">{mod.title}</h1>
       </div>
     </div>
-    <p class="text-agent-muted mt-2">{mod.subtitle}</p>
-    <div class="flex items-center gap-4 mt-3">
-      <span class="badge bg-agent-accent/20 text-agent-accent">{mod.duration}</span>
-      <span class="badge bg-agent-card text-agent-muted border border-agent-border">{mod.type}</span>
+    <p class="text-agent-muted text-lg mt-2">{mod.subtitle}</p>
+    <div class="flex gap-4 mt-4 text-sm text-agent-muted">
+      <span>&#x23F1;&#xFE0F; {mod.duration}</span>
+      <span>&#x1F4CB; {mod.type}</span>
     </div>
-  </div>
+  </header>
 
   <!-- Objectives -->
-  <div class="card mb-8 fade-in">
-    <h2 class="text-lg font-bold text-agent-text mb-3">Objetivos de aprendizaje</h2>
+  <section class="card mb-10">
+    <h2 class="text-xl font-bold text-agent-accent mb-3">Objetivos del modulo</h2>
     <ul class="space-y-2">
       {#each mod.objectives as obj}
         <li class="flex items-start gap-2 text-agent-muted">
-          <span class="text-agent-accent shrink-0 mt-0.5">&#9654;</span>
-          {obj}
+          <span class="text-agent-accent mt-1">&#x25B8;</span>
+          <span>{obj}</span>
         </li>
       {/each}
     </ul>
-  </div>
-
-  <!-- Section 1: Por Que Patrones -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">1. Por Que Patrones de Orquestacion?</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Por la misma razon que existen design patterns en OOP: son <strong class="text-agent-text">soluciones probadas a problemas recurrentes</strong>. No reinventes la rueda cada vez que necesites coordinar agentes. Estos patrones han sido validados por empresas como Anthropic, OpenAI, Microsoft y AWS en produccion real.
-    </p>
-
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Los patrones de orquestacion son al desarrollo de agentes lo que los patrones GoF (Gang of Four) son al desarrollo de software orientado a objetos. Asi como no reinventas Observer o Strategy cada vez que los necesitas, no deberias reinventar la coordinacion de agentes desde cero. Estos patrones encapsulan decadas de aprendizaje colectivo sobre como coordinar entidades autonomas que trabajan hacia un objetivo comun.
-    </p>
-
-    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">Los patrones de orquestacion de agentes no fueron inventados desde cero para la IA. Muchos provienen de la ingenieria de sistemas distribuidos: Orchestrator-Worker es esencialmente el patron Master-Worker de computacion distribuida. Pipeline es el patron Unix de stdin/stdout. Hierarchical es la delegacion en capas de los sistemas de comando militar. Lo que cambia es el medio (LLMs en vez de procesos), pero los problemas fundamentales de coordinacion son los mismos.</p>
-    </div>
-
-    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4 mb-4">
-      <p class="text-agent-accent font-bold text-sm">El principio guia</p>
-      <p class="text-sm text-agent-muted mt-1">Analiza las <strong class="text-agent-text">dependencias entre tareas</strong> ANTES de elegir un patron. Son independientes? Usa paralelo. Una necesita el output de otra? Usa pipeline. Necesitan coordinacion? Usa orquestador. Esta decision se toma en la fase de diseno, no se descubre en produccion.</p>
-    </div>
-
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Elegir el patron porque suena impresionante en vez de porque resuelve tu problema. "Usamos orquestacion jerarquica de 3 niveles" suena genial en una presentacion, pero si tu problema se resuelve con un solo agente y 3 herramientas, acabas de crear complejidad gratuita. Anthropic lo dice claro: "start with the simplest approach".</p>
-    </div>
   </section>
 
-  <!-- Section 2: Orchestrator-Worker -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">2. Orchestrator-Worker</h2>
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 1: La estructura .claude/ -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">1. La estructura <code class="text-agent-accent">.claude/</code></h2>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      El patron mas comun y versatil. Un <strong class="text-agent-text">agente orquestador</strong> central recibe la tarea, la descompone en subtareas, las asigna a workers especializados, recopila resultados y sintetiza la respuesta final. Piensa en un director de orquesta: no toca ningun instrumento, pero coordina a todos los musicos para que la sinfonia suene coherente.
+      Si has trabajado con <code class="text-agent-accent">.vscode/</code>, <code class="text-agent-accent">.github/</code> o <code class="text-agent-accent">.husky/</code>, entiendes el concepto: un directorio en la raiz de tu proyecto que configura una herramienta. El directorio <code class="text-agent-accent">.claude/</code> es lo mismo, pero para tu agente IA. Todo lo que define como se comporta Claude Code en tu proyecto vive aqui. Es la diferencia entre un agente generico y un agente que entiende <strong class="text-agent-text">tu</strong> proyecto.
     </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">USUARIO: "Haz un review de este PR"
 
-ORQUESTADOR:
-├── Analiza el PR y descompone en subtareas
-├── Asigna a WORKER 1: Calidad de codigo
-├── Asigna a WORKER 2: Seguridad
-├── Asigna a WORKER 3: Cobertura de tests
-├── Espera resultados de los 3 workers
-├── Resuelve contradicciones (si las hay)
-└── Sintetiza review final
+    <p class="text-agent-muted leading-relaxed mb-4">
+      A diferencia de otros agentes que dependen de un solo archivo de configuracion, Claude Code tiene un ecosistema completo. Cada directorio tiene un proposito especifico, y entender cuando usar cada uno es lo que separa a un usuario casual de un power user. Veamos la estructura completa:
+    </p>
 
-WORKERS: ejecutan su analisis especializado
-ORQUESTADOR: combina y entrega al usuario</pre>`}
-    </div>
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code>.claude/
+├── settings.json          # Configuracion central (permisos, env, MCP, hooks)
+├── settings.local.json    # Overrides locales (gitignored, para tu maquina)
+├── agents/                # Definiciones de sub-agentes custom
+│   ├── reviewer.md        # Agente especializado en code review
+│   └── deployer.md        # Agente especializado en deployment
+├── skills/                # Expertise empaquetada
+│   └── react-19/
+│       └── SKILL.md       # Frontmatter YAML + instrucciones
+├── commands/              # Slash commands simples
+│   ├── review.md          # Template para /review
+│   └── test.md            # Template para /test
+└── rules/                 # Reglas path-specific
+    ├── api-rules.md       # Reglas para src/api/** (YAML globs)
+    └── ui-rules.md        # Reglas para src/components/**</code></pre>`}
 
-    <!-- Full pseudocode -->
-    <h3 class="text-lg font-bold text-agent-text mb-3">Pseudocodigo detallado</h3>
-    {@html `<pre class="code-block text-agent-highlight text-sm mb-4">def orchestrator(task, workers):
-    # 1. Descomposicion: el orquestador analiza la tarea
-    subtasks = llm_decompose(task)
-
-    # 2. Asignacion: distribuye a workers especializados
-    futures = []
-    for subtask in subtasks:
-        worker = select_best_worker(subtask, workers)
-        future = worker.execute_async(subtask)
-        futures.append(future)
-
-    # 3. Recoleccion: espera resultados (con timeout!)
-    results = []
-    for future in futures:
-        try:
-            result = await future.result(timeout=60)
-            results.append(result)
-        except TimeoutError:
-            results.append(fallback_result(subtask))
-
-    # 4. Resolucion de conflictos
-    conflicts = detect_contradictions(results)
-    if conflicts:
-        results = resolve_conflicts(conflicts, results)
-
-    # 5. Sintesis: combina en respuesta final
-    return llm_synthesize(results)</pre>`}
-
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">El manejo de errores del orquestador es CRITICO. Que pasa si un worker falla? Tienes tres opciones: (1) fallback a un resultado por defecto, (2) retry con el mismo o diferente worker, (3) continuar sin ese resultado y notificarlo. La opcion correcta depende de que tan critico es ese worker para el resultado final. Si el worker de seguridad falla, NO puedes continuar sin el.</p>
-    </div>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Claude Code Agent Teams usa exactamente este patron. Cuando le pides una tarea compleja (como "refactoriza el modulo de autenticacion"), el agente principal descompone la tarea, lanza hasta 16 sub-agentes en paralelo, cada uno trabajando en un archivo o componente diferente, y despues sintetiza los cambios en un resultado coherente. El orquestador se asegura de que los cambios en un archivo no rompan las dependencias de otro.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-3">
-        <p class="text-agent-success font-bold text-sm">Cuando usarlo</p>
-        <ul class="text-xs text-agent-muted mt-1 space-y-1">
-          <li>Tareas descomponibles en subtareas independientes</li>
-          <li>Necesitas resultados combinados de multiples analisis</li>
-          <li>La tarea no es trivial para un solo agente</li>
-          <li>Las subtareas se benefician de especializacion</li>
-        </ul>
+    <div class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x2699;&#xFE0F; settings.json</h4>
+        <p class="text-sm text-agent-muted">
+          La <strong class="text-agent-text">configuracion central</strong>. Define permisos (allow/ask/deny), variables de entorno, servidores MCP, y hooks. Existe en 3 niveles con fusion: <code class="text-agent-accent">~/.claude/settings.json</code> (usuario) &lt; <code class="text-agent-accent">.claude/settings.json</code> (proyecto) &lt; <code class="text-agent-accent">.claude/settings.local.json</code> (local, gitignored). El nivel mas especifico gana.
+        </p>
       </div>
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-3">
-        <p class="text-agent-danger font-bold text-sm">Cuando evitarlo</p>
-        <ul class="text-xs text-agent-muted mt-1 space-y-1">
-          <li>La tarea es simple para un solo agente</li>
-          <li>No hay subtareas claras para descomponer</li>
-          <li>El overhead de coordinacion > beneficio</li>
-          <li>El resultado no requiere sintesis de multiples fuentes</li>
-        </ul>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F517; hooks/</h4>
+        <p class="text-sm text-agent-muted">
+          No es un directorio sino una <strong class="text-agent-text">seccion en settings.json</strong>. Los hooks reaccionan a 17 eventos del ciclo de vida del agente. Son el mecanismo de extension mas poderoso: puedes auto-formatear, bloquear acciones, notificar, o re-inyectar contexto.
+        </p>
       </div>
-    </div>
-  </section>
-
-  <!-- Section 3: Manager Pattern -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">3. Manager Pattern</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Similar al Orchestrator-Worker pero con <strong class="text-agent-text">autoridad jerarquica</strong>. El manager no solo asigna tareas: revisa resultados, puede rechazarlos y pedir retrabajo. Como un tech lead haciendo code review: no acepta el primer draft, pide mejoras hasta que la calidad sea suficiente.
-    </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">MANAGER: "Worker 1, escribe la funcion de autenticacion"
-
-WORKER 1: entrega implementacion
-
-MANAGER: revisa
-├── "El hash de password no usa bcrypt. Rechazado."
-├── "Retrabajo: implementa con bcrypt y sal unica."
-
-WORKER 1: entrega version corregida
-
-MANAGER: revisa
-├── "Aprobado. Worker 2, ahora escribe los tests."</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">La diferencia clave: quality gates</h3>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Lo que distingue al Manager del Orchestrator es el <strong class="text-agent-text">ciclo de revision</strong>. El Manager implementa quality gates: checkpoints donde evalua si el output cumple con los estandares antes de avanzar. Esto es mas lento (multiples iteraciones) pero produce resultados de mayor calidad. El pseudocodigo del review loop es:
-    </p>
-
-    {@html `<pre class="code-block text-agent-highlight text-sm mb-4">def manager_review_loop(task, worker, max_retries=3):
-    for attempt in range(max_retries):
-        result = worker.execute(task)
-
-        review = manager.evaluate(result, task.criteria)
-
-        if review.approved:
-            return result
-        else:
-            # El manager da feedback especifico para mejorar
-            task = task.with_feedback(review.feedback)
-
-    # Si despues de N intentos no aprueba, escalar
-    return escalate_to_human(task, last_result=result)</pre>`}
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">En generacion de codigo para sistemas criticos (fintech, salud), el patron Manager es preferido sobre Orchestrator simple. Un agente escribe el codigo, y un agente reviewer verifica seguridad, cobertura de tests, y compliance con regulaciones antes de aprobar. Empresas como Stripe usan variantes de este patron donde cada cambio en el sistema de pagos pasa por multiples capas de revision automatizada.</p>
-    </div>
-
-    <div class="bg-agent-warning/10 border border-agent-warning/30 rounded-lg p-4">
-      <p class="text-agent-warning font-bold text-sm">Trade-off</p>
-      <p class="text-sm text-agent-muted mt-1">Mayor calidad por la revision, pero mas lento y caro (mas iteraciones = mas tokens). Cada iteracion del review loop consume tokens de input (el resultado + el feedback) y output (el resultado corregido + la nueva evaluacion). Con 3 iteraciones, puedes estar consumiendo 6x los tokens de un pass directo. Usalo cuando la calidad del output es critica: codigo de produccion, documentacion legal, contenido publicable.</p>
-    </div>
-  </section>
-
-  <!-- Section 4: Handoff Pattern -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">4. Handoff Pattern</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Descentralizado: los agentes <strong class="text-agent-text">transfieren control</strong> a especialistas sin coordinador central. Como un triage de hospital: el medico general evalua y transfiere al especialista correcto.
-    </p>
-
-    <!-- Hospital triage analogy expanded -->
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-agent-text font-bold text-sm mb-3">Analogia del Hospital (expandida):</p>
-      <div class="space-y-2 text-sm text-agent-muted">
-        <p><strong class="text-agent-text">Recepcion (Agente Triage):</strong> El paciente llega. El enfermero evalua sintomas y decide: "Esto es cardiologia". No intenta tratar, solo clasifica y redirige.</p>
-        <p><strong class="text-agent-text">Handoff al Cardiologo:</strong> El enfermero pasa al cardiologo solo la informacion relevante: "Paciente, 55 anos, dolor en el pecho, historial de hipertension". NO le pasa todo el historial medico completo.</p>
-        <p><strong class="text-agent-text">El Cardiologo trabaja:</strong> Examina, hace ECG, diagnostica. Si descubre que tambien necesita un nefrologo, hace handoff a nefrologia con los hallazgos relevantes.</p>
-        <p><strong class="text-agent-text">Resultado:</strong> Cada especialista trabaja en lo suyo con el contexto minimo necesario.</p>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F4DA; skills/</h4>
+        <p class="text-sm text-agent-muted">
+          <strong class="text-agent-text">Expertise empaquetada</strong> como archivos SKILL.md. Cada skill tiene frontmatter YAML con metadatos y un body con instrucciones. El usuario los invoca con <code class="text-agent-accent">/nombre</code> o el modelo los carga automaticamente. Ideal para frameworks, convenciones, o patrones de tu equipo.
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F916; agents/</h4>
+        <p class="text-sm text-agent-muted">
+          <strong class="text-agent-text">Sub-agentes custom</strong>. Cada archivo .md define un agente con su propio modelo, tools permitidas, y system prompt. Corren con su propio contexto aislado y devuelven un resumen al agente principal. Ideal para tareas especializadas o paralelismo.
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F4AC; commands/</h4>
+        <p class="text-sm text-agent-muted">
+          <strong class="text-agent-text">Slash commands simples</strong>. Cada archivo .md es un template de prompt. El usuario escribe <code class="text-agent-accent">/nombre</code> y el contenido se inyecta como prompt. Sin frontmatter complejo, sin logica. Perfecto para acciones frecuentes: <code class="text-agent-accent">/review</code>, <code class="text-agent-accent">/test</code>, <code class="text-agent-accent">/deploy</code>.
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F4CF; rules/</h4>
+        <p class="text-sm text-agent-muted">
+          <strong class="text-agent-text">Reglas path-specific</strong>. Cada archivo .md tiene frontmatter con globs que definen a que archivos aplica. Cuando Claude Code edita un archivo que matchea, las reglas se inyectan automaticamente. Ejemplo: "en src/api/ siempre valida con Zod y usa try/catch".
+        </p>
       </div>
     </div>
 
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">AGENTE TRIAGE: "Esta pregunta es sobre seguridad"
-    → Handoff a AGENTE SEGURIDAD (con contexto relevante)
-
-AGENTE SEGURIDAD: "Necesito verificar el codigo"
-    → Handoff a AGENTE CODIGO (con contexto de seguridad)
-
-AGENTE CODIGO: analiza y devuelve resultado
-    → Handoff de vuelta a AGENTE SEGURIDAD (con hallazgos)
-
-AGENTE SEGURIDAD: genera recomendacion final</pre>`}
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-accent font-bold mb-1">&#x1F4A1; Sabias que</p>
+      <p class="text-sm text-agent-muted">
+        La diferencia entre <strong class="text-agent-text">commands</strong> y <strong class="text-agent-text">skills</strong> es la complejidad. Un command es un simple template de prompt (un archivo .md plano). Un skill tiene frontmatter YAML con control sobre invocacion (quien puede invocarlo, como se comporta), contexto dinamico ($ARGUMENTS, backtick commands), y la opcion keep-context-instructions para persistir instrucciones despues de compaction. Si solo necesitas un atajo, usa commands. Si necesitas encapsular expertise con control fino, usa skills.
+      </p>
     </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Una pregunta comun: <strong class="text-agent-text">que va en settings.json vs en CLAUDE.md?</strong> La respuesta es simple: settings.json es para <strong class="text-agent-text">configuracion tecnica</strong> (permisos, hooks, MCP servers, variables de entorno) y CLAUDE.md es para <strong class="text-agent-text">instrucciones en lenguaje natural</strong> (convenciones, patrones, reglas de negocio, workflow). Settings.json se parsea como JSON. CLAUDE.md se inyecta como contexto al modelo. Ambos son complementarios, no sustitutos.
+    </p>
 
     <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">El fallo #1 en handoffs es la <strong class="text-agent-text">perdida de contexto</strong>. Cada handoff es una oportunidad para perder informacion. Si el agente de triage detecta que el usuario esta frustrado (señal emocional) pero solo pasa la pregunta tecnica al especialista, el especialista pierde informacion critica para adaptar su tono. Disena tus handoffs con un "context envelope" que incluya tanto el contenido tecnico como las señales conversacionales.</p>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Implementacion en OpenAI Agents SDK</h3>
-    {@html `<pre class="code-block text-agent-highlight text-sm mb-4">from agents import Agent, Handoff
-
-# Los handoffs se definen como transiciones entre agentes
-triage = Agent(
-    name="triage",
-    instructions="Clasifica la solicitud del usuario...",
-    handoffs=[
-        Handoff(target=security_agent, filter="seguridad"),
-        Handoff(target=code_agent, filter="codigo"),
-        Handoff(target=docs_agent, filter="documentacion"),
-    ]
-)
-# El modelo decide CUANDO hacer handoff basado
-# en el contenido de la conversacion</pre>`}
-
-    <p class="text-agent-muted leading-relaxed mb-4">
-      <strong class="text-agent-text">Clave del handoff:</strong> pasar solo el contexto relevante, no todo el historial. Un handoff con 50K tokens de contexto es ineficiente y caro. Filtra lo que el siguiente agente realmente necesita. Preguntate: "Si yo fuera el siguiente agente, que informacion MINIMA necesito para hacer bien mi trabajo?"
-    </p>
-
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">Handoffs descentralizados funcionan cuando el flujo es relativamente lineal y predecible. Cuando tienes tareas paralelas que necesitan coordinacion, los handoffs generan deadlocks y race conditions. En ese caso, necesitas un coordinador central (Orchestrator). La regla de oro: si dibujas las dependencias y ves un grafo lineal, usa handoffs. Si ves un grafo con bifurcaciones y convergencias, usa un orquestador.</p>
+      <p class="text-sm text-agent-muted">Poner instrucciones en lenguaje natural dentro de settings.json o configuracion tecnica (permisos, MCP) dentro de CLAUDE.md. El modelo no parsea settings.json para instrucciones, y CLAUDE.md no se evalua como configuracion. Cada archivo tiene su funcion.</p>
     </div>
   </section>
 
-  <!-- Section 5: Hierarchical Pattern -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">5. Hierarchical Pattern</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Multiples niveles de jerarquia: <strong class="text-agent-text">director > managers > workers</strong>. Para problemas muy complejos que necesitan descomposicion en capas. Piensa en la estructura de una empresa: el CEO define la estrategia, los VPs la descomponen en iniciativas, los managers las convierten en tareas, y los ingenieros las ejecutan.
-    </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">DIRECTOR: "Migrar el monolito a microservicios"
-├── MANAGER Backend: descompone en tareas de backend
-│   ├── WORKER: Separar auth service
-│   ├── WORKER: Separar payment service
-│   └── WORKER: Disenar API gateway
-├── MANAGER Frontend: descompone en tareas de frontend
-│   ├── WORKER: Adaptar llamadas a nuevos endpoints
-│   └── WORKER: Implementar service discovery
-└── MANAGER Infra: descompone en tareas de infra
-    ├── WORKER: Configurar Kubernetes
-    └── WORKER: Disenar CI/CD pipelines</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo de 3 niveles</h3>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      El patron jerarquico funciona mejor cuando la tarea tiene <strong class="text-agent-text">dominios claramente separados</strong>. En el ejemplo anterior, Backend, Frontend e Infra son dominios con expertise distinto. Un worker de Backend no necesita saber de Kubernetes, y un worker de Infra no necesita saber de React. Los managers actuan como traductores de contexto: el director habla en terminos de negocio ("migrar a microservicios"), los managers lo traducen a terminos tecnicos de su dominio ("separar el servicio de autenticacion"), y los workers ejecutan tareas atomicas.
-    </p>
-
-    <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4 mb-4">
-      <p class="text-agent-danger font-bold text-sm">Riesgo principal: perdida de contexto entre niveles</p>
-      <p class="text-sm text-agent-muted mt-1">Cada handoff vertical pierde informacion. Es el equivalente agentico del "telefono descompuesto". Si el director pide "migrar a microservicios manteniendo zero downtime", el manager puede perder el "zero downtime" al descomponer, y el worker puede implementar sin esa restriccion critica. Mitigacion: cada nivel debe pasar instrucciones EXPLICITAS con los requisitos no-funcionales, y el resultado de cada nivel debe verificarse contra los requisitos del nivel superior.</p>
-    </div>
-
-    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">En la practica, muy pocos sistemas de agentes en produccion usan mas de 2 niveles de jerarquia. La razon es economica: cada nivel adicional multiplica los costos (mas LLM calls) y la latencia (mas roundtrips). Anthropic recomienda que si crees necesitar 3+ niveles, probablemente tu problema puede reformularse con menos capas de abstraccion.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-3">
-        <p class="text-agent-success font-bold text-sm">Cuando usarlo</p>
-        <ul class="text-xs text-agent-muted mt-1 space-y-1">
-          <li>Problemas con dominios claramente separados</li>
-          <li>Cuando cada dominio necesita expertise especializado</li>
-          <li>Tareas muy complejas que no caben en 2 niveles</li>
-        </ul>
-      </div>
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-3">
-        <p class="text-agent-danger font-bold text-sm">Cuando evitarlo</p>
-        <ul class="text-xs text-agent-muted mt-1 space-y-1">
-          <li>El problema se resuelve con Orchestrator-Worker plano</li>
-          <li>Los dominios no estan claramente separados</li>
-          <li>El presupuesto de tokens es limitado</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <!-- Section 6: Pipeline Pattern -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">6. Pipeline Pattern</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Secuencial y predecible: el <strong class="text-agent-text">output de un agente es el input del siguiente</strong>. Cada agente transforma o enriquece los datos. Facil de debuggear porque sabes exactamente donde fallo. Piensa en una linea de ensamblaje de fabrica: cada estacion agrega algo al producto.
-    </p>
-
-    <!-- Real pipeline example -->
-    <h3 class="text-lg font-bold text-agent-text mb-3">Pipeline real: Code Generation</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">AGENTE 1: Code Generator
-  input:  "Crea una API REST para gestionar usuarios"
-  output: codigo Python con FastAPI
-      │
-AGENTE 2: Code Reviewer
-  input:  codigo generado por Agente 1
-  output: codigo + lista de issues encontrados
-      │
-AGENTE 3: Test Writer
-  input:  codigo + issues del Agente 2
-  output: codigo + tests unitarios + tests de integracion
-      │
-AGENTE 4: Formatter + Linter
-  input:  codigo completo + tests
-  output: codigo formateado (black, isort) + badge de calidad
-
-Resultado final: codigo production-ready con tests</pre>`}
-    </div>
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 2: Hooks System -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">2. Hooks System — El mecanismo de extension mas poderoso</h2>
 
     <p class="text-agent-muted leading-relaxed mb-4">
-      Nota como cada agente <strong class="text-agent-text">enriquece</strong> lo que recibe del anterior. El Code Generator produce un borrador, el Reviewer lo mejora, el Test Writer agrega tests, y el Formatter lo limpia. Cada paso agrega valor. Si algo falla en el paso 3, sabes exactamente que el problema esta en la generacion de tests, no en el codigo original ni en el formateo.
+      Los hooks son interceptores que se ejecutan en momentos especificos del ciclo de vida de Claude Code. Piensa en ellos como <strong class="text-agent-text">middleware para tu agente</strong>: no modifican el modelo, sino que reaccionan a lo que el modelo hace. Hay <strong class="text-agent-accent">17 eventos</strong> disponibles, <strong class="text-agent-accent">3 tipos de handler</strong>, y el mecanismo de <strong class="text-agent-accent">exit codes</strong> para controlar el flujo.
     </p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-3">
-        <p class="text-agent-success font-bold text-sm">Ventajas</p>
-        <ul class="text-xs text-agent-muted mt-1 space-y-1">
-          <li>Simple de entender y debuggear</li>
-          <li>Cada paso tiene input/output claro</li>
-          <li>Facil de agregar o quitar pasos</li>
-          <li>Cada agente puede tener su propio modelo optimizado</li>
-        </ul>
-      </div>
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-3">
-        <p class="text-agent-danger font-bold text-sm">Desventajas</p>
-        <ul class="text-xs text-agent-muted mt-1 space-y-1">
-          <li>Tiempo total = suma de todos los pasos</li>
-          <li>Tareas independientes son forzadas a ser secuenciales</li>
-          <li>Un paso lento bloquea todo el pipeline</li>
-          <li>El contexto crece con cada paso (mas tokens)</li>
-        </ul>
-      </div>
-    </div>
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Los 17 eventos</h3>
 
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">El pipeline es el patron mas predecible y facil de debuggear, pero tiene un costo escondido: <strong class="text-agent-text">acumulacion de contexto</strong>. Si el Agente 1 genera 2K tokens de codigo, el Agente 2 recibe 2K + su prompt, genera 3K de output, y el Agente 3 recibe 3K + su prompt. Para el ultimo agente, el input puede ser enorme. Mitiga esto filtrando el contexto: cada agente solo recibe lo que NECESITA del paso anterior, no todo el historial.</p>
-    </div>
-  </section>
-
-  <!-- Section 7: Parallel Execution -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">7. Parallel Execution</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Subtareas <strong class="text-agent-text">genuinamente independientes</strong> corren simultaneamente. Reduce dramaticamente el tiempo total. Pero: las tareas DEBEN ser independientes. Si tienen dependencias, el paralelismo genera race conditions y resultados inconsistentes.
+      Los hooks se disparan en momentos clave del agent loop. Los mas importantes para empezar:
     </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">    ┌── WORKER A (30s) ──┐
-    │                     │
-START ── WORKER B (20s) ── JOIN ── RESULTADO (30s total)
-    │                     │
-    └── WORKER C (25s) ──┘
 
-Secuencial: 30 + 20 + 25 = 75 segundos
-Paralelo:   max(30, 20, 25) = 30 segundos
-Ahorro:     60% del tiempo</pre>`}
-    </div>
-
-    <!-- Timing diagram -->
-    <h3 class="text-lg font-bold text-agent-text mb-3">Diagrama de tiempos</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">Secuencial:
-|===Worker A (30s)===|===Worker B (20s)===|===Worker C (25s)===|
-                                                               75s
-
-Paralelo:
-|===Worker A (30s)=========|
-|===Worker B (20s)==|       |
-|===Worker C (25s)======|  |
-                           → JOIN → Resultado
-                           30s total</pre>`}
-    </div>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Claude Code Agent Teams puede lanzar hasta 16 sub-agentes en paralelo. Si necesitas refactorizar 16 archivos independientes, en vez de procesarlos uno a uno (secuencial), 16 agentes trabajan simultaneamente. El tiempo total es el del archivo mas complejo, no la suma de todos. Para tareas con muchos componentes independientes, la diferencia entre 15 minutos secuenciales y 1 minuto en paralelo es transformativa.</p>
-    </div>
-
-    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4 mb-4">
-      <p class="text-agent-accent font-bold text-sm">Regla de oro del paralelismo</p>
-      <p class="text-sm text-agent-muted mt-1">Antes de paralelizar, preguntate: "Si el worker B no existiera, el worker A podria hacer su trabajo completo?" Si la respuesta es SI, son independientes y puedes paralelizar. Si es NO, hay una dependencia que debes respetar. Es la misma prueba que harias para determinar si dos funciones pueden ejecutarse en threads separados sin locks.</p>
-    </div>
-
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Paralelizar tareas que PARECEN independientes pero NO lo son. Ejemplo: un agente escribe un modulo de autenticacion y otro escribe un modulo de autorizacion. Parecen independientes, pero ambos necesitan definir la interfaz User. Si trabajan en paralelo sin coordinar, pueden crear definiciones incompatibles. Analiza las dependencias de DATOS, no solo de TAREAS.</p>
-    </div>
-  </section>
-
-  <!-- Section 8: Cual Elegir -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">8. Cual Patron Elegir?</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      No hay un patron "mejor". Hay un patron <strong class="text-agent-text">correcto para cada problema</strong>. Usa esta guia de decision:
-    </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">Tu problema requiere multiples agentes?
-│
-├── NO → Un solo agente con buenas herramientas
-│
-└── SI → Las subtareas son independientes?
-    │
-    ├── SI → Orchestrator-Worker con ejecucion paralela
-    │   └── Necesitas revision de calidad? → Manager Pattern
-    │
-    └── NO → Hay un flujo lineal claro?
-        │
-        ├── SI → Pipeline Pattern
-        │
-        └── NO → Hay un flujo de especializacion?
-            │
-            ├── SI → Handoff Pattern
-            │
-            └── NO → El problema tiene multiples niveles?
-                │
-                ├── SI → Hierarchical Pattern
-                │
-                └── NO → Necesitas debate/revision?
-                    │
-                    └── SI → Conversacional (AutoGen)</pre>`}
-    </div>
-
-    <!-- Expanded decision matrix -->
-    <h3 class="text-lg font-bold text-agent-text mb-3">Matriz de decision expandida</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg overflow-x-auto mb-4">
-      <table class="w-full text-sm">
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
         <thead>
-          <tr class="border-b border-agent-border bg-agent-dark">
-            <th class="text-left text-agent-text py-3 px-4">Caracteristica del problema</th>
-            <th class="text-left text-agent-text py-3 px-4">Patron recomendado</th>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent">Evento</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Cuando se dispara</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Caso de uso tipico</th>
           </tr>
         </thead>
-        <tbody class="text-agent-muted text-xs">
-          <tr class="border-b border-agent-border/50">
-            <td class="py-2 px-4">Subtareas independientes que necesitan sintesis</td>
-            <td class="py-2 px-4 text-agent-accent">Orchestrator-Worker (paralelo)</td>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">PreToolUse</td>
+            <td class="py-2 px-3">Antes de ejecutar cualquier herramienta</td>
+            <td class="py-2 px-3">Bloquear acceso a archivos protegidos</td>
           </tr>
-          <tr class="border-b border-agent-border/50">
-            <td class="py-2 px-4">Calidad critica, el resultado debe pasar revision</td>
-            <td class="py-2 px-4 text-agent-accent">Manager Pattern</td>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">PostToolUse</td>
+            <td class="py-2 px-3">Despues de ejecutar una herramienta</td>
+            <td class="py-2 px-3">Auto-formatear codigo despues de Write/Edit</td>
           </tr>
-          <tr class="border-b border-agent-border/50">
-            <td class="py-2 px-4">Flujo lineal donde cada paso transforma datos</td>
-            <td class="py-2 px-4 text-agent-accent">Pipeline</td>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">Notification</td>
+            <td class="py-2 px-3">Cuando el agente genera una notificacion</td>
+            <td class="py-2 px-3">Enviar mensaje a Slack/Discord</td>
           </tr>
-          <tr class="border-b border-agent-border/50">
-            <td class="py-2 px-4">Routing a especialistas segun el tipo de solicitud</td>
-            <td class="py-2 px-4 text-agent-accent">Handoff</td>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">Stop</td>
+            <td class="py-2 px-3">Cuando el agente principal termina su turno</td>
+            <td class="py-2 px-3">Log de actividad, metricas de sesion</td>
           </tr>
-          <tr class="border-b border-agent-border/50">
-            <td class="py-2 px-4">Dominios separados con multiples niveles de complejidad</td>
-            <td class="py-2 px-4 text-agent-accent">Hierarchical</td>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">SubAgentStop</td>
+            <td class="py-2 px-3">Cuando un sub-agente termina</td>
+            <td class="py-2 px-3">Consolidar resultados de sub-agentes</td>
           </tr>
-          <tr class="border-b border-agent-border/50">
-            <td class="py-2 px-4">Necesidad de debate, revision cruzada, consenso</td>
-            <td class="py-2 px-4 text-agent-accent">Conversacional (AutoGen)</td>
-          </tr>
-          <tr>
-            <td class="py-2 px-4">Simple, un solo agente puede resolverlo</td>
-            <td class="py-2 px-4 text-agent-accent">No uses multi-agente. En serio.</td>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">PostCompact</td>
+            <td class="py-2 px-3">Despues de compactar el contexto</td>
+            <td class="py-2 px-3">Re-inyectar instrucciones criticas perdidas</td>
           </tr>
         </tbody>
       </table>
     </div>
-  </section>
 
-  <!-- NEW Section: Patrones Combinados -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">9. Patrones Combinados</h2>
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Los 3 tipos de handler</h3>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      En sistemas de produccion reales, <strong class="text-agent-text">los patrones se combinan</strong>. No es "Orchestrator-Worker O Pipeline". Es "Orchestrator-Worker DONDE cada worker es un Pipeline de 3 pasos". Los patrones son bloques de Lego que se ensamblan segun la complejidad del problema.
+      Cuando un evento se dispara, el hook ejecuta un handler. Hay 3 tipos, cada uno con un proposito diferente:
     </p>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo: Sistema de Code Review completo</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">NIVEL 1: Handoff (routing)
-├── El agente triage clasifica el PR
-│   ├── PR pequeno (< 100 lineas) → Agente Simple (1 agente)
-│   └── PR grande (> 100 lineas) → Sistema Multi-Agente
-│
-NIVEL 2: Orchestrator-Worker (coordinacion)
-├── Orquestador descompone y lanza workers en PARALELO:
-│   ├── Worker Calidad (pipeline de 2 pasos):
-│   │   └── Analisis → Recomendaciones
-│   ├── Worker Seguridad (pipeline de 3 pasos):
-│   │   └── Scan → Verificacion → Reporte
-│   └── Worker Tests (1 paso)
-│
-NIVEL 3: Manager (calidad)
-├── Manager revisa el resumen sintetizado
-├── Si hay contradicciones → Agente Resolver Conflictos
-└── Si la calidad es insuficiente → Pedir retrabajo</pre>`}
+    <div class="grid md:grid-cols-3 gap-4 mb-6">
+      <div class="card border-agent-accent/30">
+        <h4 class="text-agent-accent font-bold mb-2">1. command</h4>
+        <p class="text-sm text-agent-muted mb-2">Ejecuta un <strong class="text-agent-text">shell command</strong>. El stdout se inyecta de vuelta como contexto al modelo. Ideal para auto-formateo, linting, o recoleccion de informacion.</p>
+        <p class="text-xs text-agent-muted font-mono bg-agent-darker rounded p-2">
+          Ejemplo: "prettier --write $FILE"
+        </p>
+      </div>
+      <div class="card border-agent-accent/30">
+        <h4 class="text-agent-accent font-bold mb-2">2. prompt</h4>
+        <p class="text-sm text-agent-muted mb-2">Envia el stdout del comando como un <strong class="text-agent-text">turno de usuario</strong> al modelo. El modelo procesa el output y responde. Ideal para re-inyectar contexto critico.</p>
+        <p class="text-xs text-agent-muted font-mono bg-agent-darker rounded p-2">
+          Ejemplo: Re-inyectar CLAUDE.md post-compaction
+        </p>
+      </div>
+      <div class="card border-agent-accent/30">
+        <h4 class="text-agent-accent font-bold mb-2">3. agent</h4>
+        <p class="text-sm text-agent-muted mb-2">Lanza un <strong class="text-agent-text">sub-agente</strong> con el output del hook como prompt. El sub-agente tiene su propio contexto aislado. Ideal para tareas complejas post-accion.</p>
+        <p class="text-xs text-agent-muted font-mono bg-agent-darker rounded p-2">
+          Ejemplo: Lanzar un agente de testing post-edit
+        </p>
+      </div>
     </div>
 
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Exit codes: el mecanismo de control</h3>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      Este sistema combina <strong class="text-agent-text">Handoff</strong> (para routing inicial), <strong class="text-agent-text">Orchestrator-Worker</strong> (para coordinacion de analisis paralelos), <strong class="text-agent-text">Pipeline</strong> (dentro de cada worker), y <strong class="text-agent-text">Manager</strong> (para quality gate final). Cada patron resuelve un problema especifico en el sistema.
+      Los exit codes de un hook determinan que pasa despues. Esto es <strong class="text-agent-text">critico para seguridad</strong>:
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="card bg-agent-success/5 border-agent-success/30">
+        <p class="text-agent-success font-bold text-lg mb-1">Exit 0 — Proceder</p>
+        <p class="text-sm text-agent-muted">La accion continua normalmente. Si el hook es tipo <code class="text-agent-accent">command</code>, el stdout se inyecta como contexto adicional. Es el flujo normal: "vi lo que vas a hacer, todo bien, continua".</p>
+      </div>
+      <div class="card bg-agent-danger/5 border-agent-danger/30">
+        <p class="text-agent-danger font-bold text-lg mb-1">Exit 2 — BLOQUEAR</p>
+        <p class="text-sm text-agent-muted">La accion se <strong class="text-agent-text">DETIENE</strong>. No se ejecuta. El modelo recibe una notificacion de que fue bloqueada. Es el guardrail definitivo: "esta accion no esta permitida". Usa esto para proteger archivos sensibles, bloquear comandos peligrosos, o prevenir accesos no autorizados.</p>
+      </div>
+    </div>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Matchers: filtrar por herramienta</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      No todos los hooks necesitan dispararse en todas las herramientas. Los <strong class="text-agent-text">matchers</strong> filtran por nombre de herramienta usando regex. Un hook con matcher <code class="text-agent-accent">Bash</code> solo se dispara cuando Claude Code va a ejecutar un comando shell, no cuando edita un archivo.
+    </p>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Ejemplo completo: configuracion de hooks en settings.json</h3>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code>{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if echo \"$TOOL_INPUT\" | grep -q \"\\.env\\\\|secrets\\\\|credentials\"; then echo \"BLOCKED: archivo sensible\" >&2; exit 2; fi'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "prettier --write \"$TOOL_INPUT_FILE_PATH\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -X POST -H 'Content-Type: application/json' -d '{\"text\": \"Claude Code: $NOTIFICATION_MESSAGE\"}' $SLACK_WEBHOOK_URL"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "command": "cat CLAUDE.md"
+          }
+        ]
+      }
+    ]
+  }
+}</code></pre>`}
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Este ejemplo muestra 4 patrones comunes: <strong class="text-agent-text">(1)</strong> un PreToolUse que <strong class="text-agent-text">bloquea</strong> (exit 2) si Claude intenta editar archivos sensibles como .env o credentials, <strong class="text-agent-text">(2)</strong> un PostToolUse que auto-formatea con Prettier despues de cada edicion, <strong class="text-agent-text">(3)</strong> una Notification que envia a Slack cuando el agente genera un aviso, y <strong class="text-agent-text">(4)</strong> un PostCompact que re-inyecta CLAUDE.md como turno de usuario despues de que el contexto se compacta (para no perder instrucciones criticas).
     </p>
 
     <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">La composicion de patrones funciona porque cada patron opera en un nivel de abstraccion diferente. El Handoff opera a nivel de routing, el Orchestrator a nivel de coordinacion, el Pipeline a nivel de transformacion, y el Manager a nivel de calidad. No compiten entre si: se complementan.</p>
+      <p class="text-sm text-agent-muted">El hook <strong class="text-agent-text">PostCompact + type prompt</strong> es uno de los patrones mas poderosos. Cuando Claude Code compacta el contexto (para liberar tokens), puede perder instrucciones importantes de CLAUDE.md. Con este hook, el contenido de CLAUDE.md se re-inyecta automaticamente como un turno de usuario, asegurando que las instrucciones criticas nunca se pierdan. Anthropic lo recomienda como best practice para sesiones largas.</p>
     </div>
 
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4">
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Los sistemas de agentes mas avanzados en produccion (como los de Anthropic, Google, y Microsoft) combinan multiples patrones. Un sistema de soporte al cliente podria usar Handoff para routing (ventas vs soporte vs billing), Orchestrator-Worker para tareas complejas de soporte (diagnosticar + resolver + verificar en paralelo), y Pipeline para el flujo de escalacion (agente L1 → agente L2 → humano).</p>
+      <p class="text-sm text-agent-muted">El equipo de incident.io usa hooks PreToolUse para bloquear acceso a archivos de infraestructura critica. Cuando un agente intenta editar un archivo en <code class="text-agent-accent">deploy/</code> o <code class="text-agent-accent">terraform/</code>, el hook sale con exit code 2 y el agente recibe un mensaje: "No tienes permiso para modificar infraestructura directamente. Crea un PR y pide review humano." Esto elimino accidentes en produccion.</p>
+    </div>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Patrones avanzados de hooks</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Mas alla de los 4 patrones basicos, los hooks habilitan workflows sofisticados que transforman a Claude Code en una plataforma extensible:
+    </p>
+
+    <div class="space-y-4 mb-6">
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F6E1;&#xFE0F; Guardrail de seguridad en Bash</h4>
+        <p class="text-sm text-agent-muted mb-2">Un hook PreToolUse con matcher <code class="text-agent-accent">Bash</code> que parsea el comando antes de ejecutarlo. Si contiene patrones peligrosos (<code class="text-agent-accent">rm -rf</code>, <code class="text-agent-accent">DROP TABLE</code>, <code class="text-agent-accent">curl | bash</code>), sale con exit code 2. Es tu primera linea de defensa contra comandos destructivos.</p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F4CA; Metricas de observabilidad</h4>
+        <p class="text-sm text-agent-muted mb-2">Un hook Stop que al terminar cada turno registra: tokens consumidos, herramientas usadas, archivos modificados, y tiempo de ejecucion. Envia estos datos a un dashboard (Grafana, Datadog). Permite medir el ROI de tu inversion en agentes y detectar regresiones de performance.</p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F504; Auto-test despues de edicion</h4>
+        <p class="text-sm text-agent-muted mb-2">Un hook PostToolUse con matcher <code class="text-agent-accent">Edit|Write</code> que detecta si el archivo modificado tiene un archivo de test asociado (ej: <code class="text-agent-accent">utils.ts</code> tiene <code class="text-agent-accent">utils.test.ts</code>). Si existe, ejecuta solo ese test y devuelve el resultado como contexto. El agente ve inmediatamente si rompio algo.</p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F4DD; Documentacion automatica</h4>
+        <p class="text-sm text-agent-muted mb-2">Un hook PostToolUse tipo <code class="text-agent-accent">agent</code> que lanza un sub-agente documentador cada vez que se crea una funcion publica. El sub-agente lee la funcion, genera JSDoc/docstring, y la agrega. La documentacion se genera como efecto colateral del desarrollo, no como una tarea separada.</p>
+      </div>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Crear hooks que son demasiado lentos. Cada hook se ejecuta <strong class="text-agent-text">sincronicamente</strong> antes o despues de la accion. Si tu hook PreToolUse tarda 5 segundos en ejecutar (porque hace una llamada de red, o ejecuta un linter pesado), esos 5 segundos se agregan a CADA accion del agente. Un hook de formateo que tarda 200ms es aceptable. Uno que tarda 5 segundos destruye la experiencia. Mide siempre el tiempo de ejecucion de tus hooks.</p>
     </div>
   </section>
 
-  <!-- BranchingScenario -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 3: Skills System -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">3. Skills — Expertise empaquetada</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Un skill es un <strong class="text-agent-text">paquete de expertise</strong> que Claude Code puede cargar bajo demanda. Piensa en skills como <strong class="text-agent-text">"libros de referencia"</strong> que el agente consulta solo cuando los necesita, en vez de tener todo en memoria permanentemente. Esto es clave para la gestion eficiente del contexto: en vez de cargar 50 paginas de instrucciones en CLAUDE.md (que consumirian tokens constantemente), encapsulas cada area de expertise como un skill independiente.
+    </p>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Estructura de un SKILL.md</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Un skill tiene dos partes: <strong class="text-agent-text">frontmatter YAML</strong> (metadatos y configuracion) y <strong class="text-agent-text">body Markdown</strong> (las instrucciones). Veamos un ejemplo completo:
+    </p>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code># .claude/skills/react-19/SKILL.md
+---
+name: react-19
+description: "React 19 patterns: Server Components, Actions, use() hook, ref as prop"
+user-invocable: true
+disable-model-invocation: false
+keep-context-instructions: true
+---
+
+# React 19 Patterns
+
+## CRITICAL Rules
+- Use Server Components by default. Add 'use client' ONLY when you need interactivity.
+- Use the \`use()\` hook for reading promises and context (replaces useContext).
+- Pass refs as regular props (no forwardRef needed in React 19).
+- Use Actions (useActionState, useFormStatus) for form handling.
+
+## File Structure
+\`current project structure\`
+\`tree src/components -L 2\`
+
+## Component Template
+When creating new components, follow this pattern:
+- TypeScript with explicit Props interface
+- Server Component by default
+- Error boundary wrapping for client components
+- Tailwind CSS for styling (no CSS modules)</code></pre>`}
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Campos del frontmatter</h3>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent">Campo</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Tipo</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Descripcion</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">name</td>
+            <td class="py-2 px-3">string</td>
+            <td class="py-2 px-3">Nombre del skill. Se usa como identificador para invocacion.</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">description</td>
+            <td class="py-2 px-3">string</td>
+            <td class="py-2 px-3">Descripcion corta. El modelo la lee para decidir si invocar el skill.</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">user-invocable</td>
+            <td class="py-2 px-3">boolean</td>
+            <td class="py-2 px-3">Si <code class="text-agent-accent">true</code>, el usuario puede invocar con <code class="text-agent-accent">/nombre</code>.</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">disable-model-invocation</td>
+            <td class="py-2 px-3">boolean</td>
+            <td class="py-2 px-3">Si <code class="text-agent-accent">true</code>, el modelo NO puede invocarlo automaticamente (solo el usuario).</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">keep-context-instructions</td>
+            <td class="py-2 px-3">boolean</td>
+            <td class="py-2 px-3">Si <code class="text-agent-accent">true</code>, las instrucciones persisten tras compaction del contexto.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Contexto dinamico</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los skills no son estaticos. Tienen dos mecanismos de contexto dinamico que se resuelven <strong class="text-agent-text">en tiempo de carga</strong>:
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">$ARGUMENTS</h4>
+        <p class="text-sm text-agent-muted">Cuando el usuario invoca <code class="text-agent-accent">/skill-name esto es el argumento</code>, el texto despues del nombre se inyecta donde aparezca <code class="text-agent-accent">$ARGUMENTS</code> en el body del skill. Ideal para skills parametricos.</p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">`comando` (backticks)</h4>
+        <p class="text-sm text-agent-muted">Un comando entre backticks se ejecuta como shell y su stdout se inyecta en su lugar. Ejemplo: <code class="text-agent-accent">`tree src -L 2`</code> se reemplaza por la estructura real del directorio. Permite que el skill tenga contexto actualizado del proyecto.</p>
+      </div>
+    </div>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">&#x1F4A1; Sabias que</p>
+      <p class="text-sm text-agent-muted">
+        Los skills son la razon por la que tu CLAUDE.md no necesita ser un documento de 500 lineas. En vez de poner TODAS las convenciones de tu proyecto en CLAUDE.md (consumiendo tokens constantemente), creas skills especializados que se cargan solo cuando son relevantes. CLAUDE.md mantiene las instrucciones globales (workflow, reglas generales) y los skills manejan el detalle especifico (React 19 patterns, testing conventions, API design).
+      </p>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Crear un solo skill gigante con todas las instrucciones del proyecto. Esto es igual de malo que un CLAUDE.md enorme: consume tokens y el modelo tiene que filtrar lo relevante. Crea skills pequenos y enfocados: un skill para React, otro para la API, otro para testing. Cada uno se carga solo cuando es necesario.</p>
+    </div>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Skills en accion: el flujo completo</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Para entender como funciona un skill en la practica, veamos el flujo completo desde la invocacion hasta la ejecucion:
+    </p>
+
+    <div class="space-y-3 mb-6">
+      <div class="flex items-start gap-3">
+        <span class="text-agent-accent font-bold text-sm mt-1 shrink-0">1.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Trigger</strong>: El usuario escribe <code class="text-agent-accent">/react-19 create a new form component for user registration</code></p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="text-agent-accent font-bold text-sm mt-1 shrink-0">2.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Load</strong>: Claude Code encuentra <code class="text-agent-accent">.claude/skills/react-19/SKILL.md</code>, lee el frontmatter (user-invocable: true), y procede</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="text-agent-accent font-bold text-sm mt-1 shrink-0">3.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Resolve</strong>: <code class="text-agent-accent">$ARGUMENTS</code> se reemplaza por "create a new form component for user registration". Los backtick commands (<code class="text-agent-accent">`tree src/components -L 2`</code>) se ejecutan y su output se inyecta</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="text-agent-accent font-bold text-sm mt-1 shrink-0">4.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Inject</strong>: El body resuelto del skill se inyecta como contexto al modelo, junto con el argumento del usuario</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="text-agent-accent font-bold text-sm mt-1 shrink-0">5.</span>
+        <p class="text-sm text-agent-muted"><strong class="text-agent-text">Execute</strong>: El modelo ahora tiene las instrucciones de React 19 (Server Components, Actions, use() hook) y la tarea del usuario. Genera el componente siguiendo los patrones definidos en el skill</p>
+      </div>
+    </div>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Eficiencia de tokens</p>
+      <p class="text-sm text-agent-muted">Si tienes 5 skills de ~2000 tokens cada uno (React, Tailwind, Testing, API, DB), son 10K tokens de instrucciones especializadas. Si todo estuviera en CLAUDE.md, esos 10K tokens se cargarian en <strong class="text-agent-text">cada mensaje</strong>, sin importar si son relevantes. Con skills, solo se cargan los que se necesitan. Si estas trabajando en un componente React, se carga solo el skill de React (~2000 tokens). El ahorro es de hasta <strong class="text-agent-text">80% en tokens de contexto</strong> por sesion.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 4: Sub-Agents -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">4. Sub-Agents — Agentes dentro del agente</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los sub-agentes son una de las capacidades mas avanzadas de Claude Code. Permiten al agente principal <strong class="text-agent-text">delegar tareas</strong> a agentes especializados que corren con su propio contexto aislado. Esto resuelve dos problemas criticos: <strong class="text-agent-text">contaminacion de contexto</strong> (el agente principal no se llena de detalles de bajo nivel) y <strong class="text-agent-text">especializacion</strong> (cada sub-agente puede tener herramientas y modelos optimizados para su tarea).
+    </p>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Sub-agentes built-in</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Claude Code viene con 3 sub-agentes integrados, cada uno optimizado para un caso de uso especifico:
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent">Sub-agente</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Modelo</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Tools</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Caso de uso</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">Explore</td>
+            <td class="py-2 px-3">Haiku (rapido, barato)</td>
+            <td class="py-2 px-3">Read, Glob, Grep (solo lectura)</td>
+            <td class="py-2 px-3">Investigar codebase, buscar archivos, entender estructura</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">Plan</td>
+            <td class="py-2 px-3">Hereda el modelo actual</td>
+            <td class="py-2 px-3">Read, Glob, Grep (solo lectura)</td>
+            <td class="py-2 px-3">Planificacion arquitectonica, diseno de solucion</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">General-purpose</td>
+            <td class="py-2 px-3">Hereda el modelo actual</td>
+            <td class="py-2 px-3">Todas las herramientas disponibles</td>
+            <td class="py-2 px-3">Tareas completas que requieren lectura y escritura</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      <strong class="text-agent-text">Explore</strong> es el mas usado. Al usar Haiku (10x mas barato que Opus), puedes investigar un codebase entero gastando centavos. Ideal para responder preguntas como "encuentra todos los archivos que importan este modulo" o "que patron usa la API de autenticacion". El sub-agente devuelve solo un <strong class="text-agent-text">resumen</strong> al agente principal, manteniendo el contexto limpio.
+    </p>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Sub-agentes custom</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Puedes definir tus propios sub-agentes en <code class="text-agent-accent">.claude/agents/</code>. Cada archivo .md define un agente con su personalidad, herramientas y modelo:
+    </p>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code># .claude/agents/reviewer.md
+---
+model: claude-sonnet-4-20250514
+allowed-tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash(npm test)
+  - Bash(npm run lint)
+description: "Agente especializado en code review. Analiza calidad, seguridad y tests."
+---
+
+# Eres un Code Reviewer Senior
+
+## Tu rol
+Analizas Pull Requests con foco en:
+1. **Calidad**: complejidad ciclomatica, DRY, naming conventions
+2. **Seguridad**: OWASP Top 10, secrets expuestos, inyecciones
+3. **Tests**: cobertura de los cambios, edge cases faltantes
+
+## Reglas
+- NUNCA edites archivos. Solo lees y reportas.
+- Ejecuta tests para verificar que pasan.
+- Prioriza hallazgos: Critical > High > Medium > Low.
+- Incluye SIEMPRE linea y archivo para cada hallazgo.
+- Si no encuentras problemas, dilo explicitamente.</code></pre>`}
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Foreground vs Background</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los sub-agentes pueden correr en dos modos:
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">Foreground (bloquea)</h4>
+        <p class="text-sm text-agent-muted">El agente principal espera a que el sub-agente termine. Util cuando necesitas el resultado antes de continuar. Ejemplo: el agente principal pide a Explore que investigue la estructura antes de empezar a implementar.</p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">Background (paralelo)</h4>
+        <p class="text-sm text-agent-muted">El sub-agente corre en paralelo mientras el agente principal continua. Util para tareas independientes. Ejemplo: lanzar un agente de tests en background mientras el principal sigue implementando. Es la base de los Agent Teams.</p>
+      </div>
+    </div>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Memory isolation</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Cada sub-agente tiene su <strong class="text-agent-text">propio contexto aislado</strong>. No comparte el historial de mensajes del agente principal. Cuando termina, devuelve un <strong class="text-agent-text">resumen</strong> al padre. Esto es intencional: protege el contexto del agente principal de desbordarse con detalles de tareas delegadas. Si un sub-agente Explore lee 50 archivos, el agente principal solo ve un resumen de 200 tokens, no los 50 archivos completos.
+    </p>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">En el proyecto de compilador C de Anthropic (100K lineas de Rust generadas por agentes), usaron 16 sub-agentes en paralelo. Cada uno se encargaba de un subsistema del compilador (lexer, parser, codegen, optimizer, etc.). El agente orquestador solo recibia resumenes de progreso, manteniendo su contexto limpio para decisiones de alto nivel. Sin sub-agentes, el contexto se habria agotado en la primera iteracion.</p>
+    </div>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">La decision de cuando usar sub-agentes sigue la <strong class="text-agent-text">regla del contexto</strong>: si la tarea requiere leer mucha informacion que el agente principal no necesita retener, usa un sub-agente. Si la tarea es corta y el resultado es necesario inmediatamente, hazlo directamente. No abuses de los sub-agentes para tareas triviales: el overhead de lanzar un contexto nuevo tiene costo.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 5: Permission Model -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">5. Permission Model — Seguridad a traves de permisos</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El modelo de permisos de Claude Code es una de sus fortalezas principales frente a otros agentes. En vez de confiar ciegamente en el modelo, define un sistema de <strong class="text-agent-accent">3 niveles</strong> que balancea productividad con seguridad. Cada herramienta puede ser configurada independientemente.
+    </p>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Los 3 niveles</h3>
+
+    <div class="grid md:grid-cols-3 gap-4 mb-6">
+      <div class="card bg-agent-success/5 border-agent-success/30">
+        <p class="text-agent-success font-bold text-lg mb-1">allow</p>
+        <p class="text-sm text-agent-muted">Auto-ejecutar sin preguntar. Para acciones seguras que haces constantemente. Ejemplo: <code class="text-agent-accent">Bash(npm test)</code>, <code class="text-agent-accent">Read("**/*")</code>.</p>
+      </div>
+      <div class="card bg-agent-warning/5 border-agent-warning/30">
+        <p class="text-agent-warning font-bold text-lg mb-1">ask</p>
+        <p class="text-sm text-agent-muted">Preguntar al usuario cada vez. El modo por defecto. Para acciones que necesitan supervision humana. Ejemplo: <code class="text-agent-accent">Edit("**/*.ts")</code>.</p>
+      </div>
+      <div class="card bg-agent-danger/5 border-agent-danger/30">
+        <p class="text-agent-danger font-bold text-lg mb-1">deny</p>
+        <p class="text-sm text-agent-muted">Nunca permitir, ni siquiera si el usuario lo aprueba. Para acciones que JAMAS deben ejecutarse. Ejemplo: <code class="text-agent-accent">Bash(rm -rf)</code>.</p>
+      </div>
+    </div>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Sintaxis: ToolName(pattern)</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los permisos usan la sintaxis <code class="text-agent-accent">ToolName(pattern)</code> donde el pattern es un glob que matchea contra el argumento de la herramienta. Esto permite un control granular:
+    </p>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code>// settings.json - ejemplo de permisos bien configurados
+{
+  "permissions": {
+    "allow": [
+      "Read",                          // Leer cualquier archivo
+      "Glob",                          // Buscar archivos
+      "Grep",                          // Buscar en contenido
+      "Bash(npm test)",                // Solo npm test
+      "Bash(npm run lint)",            // Solo npm run lint
+      "Bash(npm run build)",           // Solo npm run build
+      "Edit(\\"src/**/*.ts\\")",       // Editar solo TypeScript en src/
+      "Edit(\\"src/**/*.svelte\\")",   // Editar solo Svelte en src/
+      "Write(\\"src/**/*.ts\\")",      // Crear solo TypeScript en src/
+      "Write(\\"src/**/*.svelte\\")"   // Crear solo Svelte en src/
+    ],
+    "deny": [
+      "Bash(rm -rf *)",               // NUNCA borrar recursivo
+      "Bash(git push --force)",        // NUNCA force push
+      "Edit(\\".env*\\")",            // NUNCA editar .env
+      "Edit(\\"*.pem\\")",            // NUNCA editar certificados
+      "Edit(\\"deploy/**\\")"         // NUNCA editar deployment
+    ]
+  }
+}</code></pre>`}
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Permission modes</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Ademas de los permisos granulares, Claude Code tiene <strong class="text-agent-text">modos globales</strong> que cambian el comportamiento general:
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent">Modo</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Comportamiento</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Riesgo</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">plan</td>
+            <td class="py-2 px-3">Solo lectura. No puede editar ni ejecutar.</td>
+            <td class="py-2 px-3 text-agent-success">Minimo</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">askEdits</td>
+            <td class="py-2 px-3">Pregunta antes de cada edicion.</td>
+            <td class="py-2 px-3 text-agent-warning">Bajo</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">acceptEdits</td>
+            <td class="py-2 px-3">Auto-acepta ediciones, pregunta en Bash.</td>
+            <td class="py-2 px-3 text-agent-warning">Medio</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">bypassPermissions</td>
+            <td class="py-2 px-3">Todo permitido sin preguntar. Solo para testing.</td>
+            <td class="py-2 px-3 text-agent-danger">Alto</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">&#x1F4A1; Dato clave</p>
+      <p class="text-sm text-agent-muted">Segun los datos de Anthropic, un archivo settings.json bien configurado reduce los prompts de permisos en un <strong class="text-agent-text">84%</strong>. Esto no es solo conveniencia: cada prompt de permisos interrumpe el flujo del agente y del developer. Un sandbox bien configurado te permite trabajar en modo "auto-pilot" con confianza, porque sabes que las acciones peligrosas estan bloqueadas de antemano.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 6: Sandbox -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">6. Sandbox — Aislamiento para seguridad</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El sandbox es la capa de seguridad mas profunda de Claude Code. Mientras los permisos controlan <strong class="text-agent-text">que herramientas</strong> puede usar el agente, el sandbox controla <strong class="text-agent-text">que recursos del sistema</strong> puede acceder. Son dos dimensiones complementarias de seguridad.
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F4C2; Filesystem Sandbox</h4>
+        <p class="text-sm text-agent-muted mb-2">
+          Restringe <strong class="text-agent-text">que directorios</strong> puede leer y escribir el agente. Por defecto, Claude Code solo puede acceder al directorio del proyecto y sus subdirectorios. No puede leer <code class="text-agent-accent">/etc/passwd</code>, tu home directory, ni otros proyectos.
+        </p>
+        <p class="text-xs text-agent-muted">
+          En macOS usa Apple Seatbelt (sandbox-exec). En Linux usa namespaces. En Docker, el container ya provee aislamiento.
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">&#x1F310; Network Sandbox</h4>
+        <p class="text-sm text-agent-muted mb-2">
+          Bloquea <strong class="text-agent-text">conexiones de red</strong> no autorizadas. El agente no puede hacer curl a endpoints arbitrarios, descargar binarios, o exfiltrar datos a servidores externos. Solo las conexiones necesarias (API de Anthropic, MCP servers configurados) estan permitidas.
+        </p>
+        <p class="text-xs text-agent-muted">
+          Esto previene ataques de exfiltracion donde codigo malicioso en el repo intenta enviar datos via el agente.
+        </p>
+      </div>
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La combinacion de filesystem + network sandbox crea un entorno donde el agente puede trabajar con confianza: tiene acceso a lo que necesita (tu proyecto) y esta bloqueado de lo que no (el resto del sistema). Segun el blog de ingenieria de Anthropic, esta arquitectura de sandboxing fue fundamental para habilitar el modo <strong class="text-agent-text">acceptEdits</strong> de forma segura.
+    </p>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Del blog de Anthropic</p>
+      <p class="text-sm text-agent-muted">"El sandboxing de Claude Code fue disenado con el principio de menor privilegio. El agente solo tiene acceso a los recursos minimos necesarios para completar su tarea. Esto no es solo una buena practica de seguridad: es lo que permite que los usuarios confien en el agente para hacer ediciones automaticas sin supervision constante."</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 7: Headless Mode -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">7. Headless Mode — Claude Code sin UI</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El modo headless transforma a Claude Code de una herramienta interactiva a un <strong class="text-agent-text">componente de automatizacion</strong>. En vez de abrir una sesion interactiva, le envias un prompt, el agente ejecuta su loop, y devuelve el resultado. Esto abre la puerta a CI/CD, GitHub Actions, scripts de automatizacion, y cualquier workflow que no requiera intervencion humana.
+    </p>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Anatomia del comando headless</h3>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code># Basico: un prompt, una respuesta
+claude -p "Explica que hace este proyecto"
+
+# Con formato de output para CI
+claude -p "Genera changelog desde el ultimo tag" --output-format json
+
+# Con limites de seguridad
+claude -p "Refactoriza src/utils.ts" \\
+  --max-turns 10 \\
+  --max-budget-usd 1.00 \\
+  --allowedTools Read,Glob,Grep,Edit
+
+# Con herramientas restringidas (solo lectura)
+claude -p "Audita la seguridad del proyecto" \\
+  --allowedTools Read,Glob,Grep \\
+  --output-format json
+
+# Streaming para monitoreo en tiempo real
+claude -p "Implementa la feature descrita en TASK.md" \\
+  --output-format stream-json \\
+  --max-turns 20</code></pre>`}
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Flags principales</h3>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent">Flag</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Descripcion</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Ejemplo</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">-p</td>
+            <td class="py-2 px-3">Activa modo headless. Un prompt, ejecuta, sale.</td>
+            <td class="py-2 px-3 font-mono">-p "Genera tests"</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">--output-format</td>
+            <td class="py-2 px-3">Formato del output: text, json, stream-json</td>
+            <td class="py-2 px-3 font-mono">--output-format json</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">--max-turns</td>
+            <td class="py-2 px-3">Limite de iteraciones del agent loop</td>
+            <td class="py-2 px-3 font-mono">--max-turns 10</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">--allowedTools</td>
+            <td class="py-2 px-3">Herramientas permitidas (comma-separated)</td>
+            <td class="py-2 px-3 font-mono">--allowedTools Read,Grep</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3 font-mono text-agent-text">--max-budget-usd</td>
+            <td class="py-2 px-3">Tope de costo en dolares</td>
+            <td class="py-2 px-3 font-mono">--max-budget-usd 2.00</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="text-xl font-semibold text-agent-text mb-3">Caso de uso: GitHub Action para code review</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Uno de los casos de uso mas comunes del modo headless es el code review automatico en CI/CD. Anthropic provee una GitHub Action oficial (<code class="text-agent-accent">anthropics/claude-code-action</code>) que lo simplifica:
+    </p>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code># .github/workflows/claude-review.yml
+name: Claude Code Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            Revisa este PR. Enfocate en:
+            1. Bugs potenciales
+            2. Vulnerabilidades de seguridad
+            3. Mejoras de performance
+            Deja comentarios inline en los archivos relevantes.
+          max_turns: 15
+          max_budget_usd: 2.00
+          allowed_tools: "Read,Glob,Grep,Bash(npm test)"
+        env:
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}</code></pre>`}
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">En modo headless, <strong class="text-agent-text">siempre</strong> configura los 3 limites de seguridad: <code class="text-agent-accent">--max-turns</code> (evita loops infinitos), <code class="text-agent-accent">--max-budget-usd</code> (evita costos descontrolados), y <code class="text-agent-accent">--allowedTools</code> (principio de menor privilegio). Sin estos limites, un agente headless podria iterar indefinidamente, gastar cientos de dolares, o ejecutar comandos peligrosos sin supervision humana.</p>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
+      <p class="text-sm text-agent-muted">Ejecutar Claude Code en headless con <code class="text-agent-accent">--allowedTools</code> sin restriccion (o sea, con todas las tools). En CI/CD no hay un humano supervisando, asi que el agente tiene <strong class="text-agent-text">carta blanca</strong>. Si algo sale mal (hallucina un comando rm, intenta push a main), nadie lo detiene. Siempre restringe tools al minimo necesario para la tarea.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 8: Putting It All Together -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">8. Uniendo todo: un .claude/ profesional</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Veamos como se ve un directorio .claude/ completo y bien configurado para un proyecto real:
+    </p>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code>.claude/
+├── settings.json            # Permisos + hooks + MCP
+├── settings.local.json      # API keys locales (gitignored)
+├── agents/
+│   ├── reviewer.md          # Code review especializado
+│   ├── tester.md            # Generador de tests
+│   └── deployer.md          # Asistente de deploy (user-invocable only)
+├── skills/
+│   ├── react-19/SKILL.md    # Patrones de React 19
+│   ├── tailwind-4/SKILL.md  # Convenciones de Tailwind v4
+│   └── testing/SKILL.md     # Framework de testing del equipo
+├── commands/
+│   ├── review.md            # /review - shortcut para code review
+│   ├── test.md              # /test - generar tests del archivo actual
+│   └── commit.md            # /commit - commit con conventional format
+└── rules/
+    ├── api-rules.md          # Reglas para src/api/** (Zod, try/catch)
+    └── components-rules.md   # Reglas para src/components/** (Svelte 5)</code></pre>`}
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La clave es la <strong class="text-agent-text">separacion de responsabilidades</strong>:
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">CLAUDE.md</h4>
+        <ul class="text-sm text-agent-muted space-y-1">
+          <li>&#x25B8; Workflow del equipo (4 fases)</li>
+          <li>&#x25B8; Reglas generales (nunca force push)</li>
+          <li>&#x25B8; Dispatch table de agentes</li>
+          <li>&#x25B8; Convenciones de naming</li>
+          <li>&#x25B8; Estructura del proyecto</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4 class="text-agent-accent font-bold mb-2">.claude/</h4>
+        <ul class="text-sm text-agent-muted space-y-1">
+          <li>&#x25B8; Permisos tecnicos (allow/deny)</li>
+          <li>&#x25B8; Hooks automaticos</li>
+          <li>&#x25B8; Agentes especializados</li>
+          <li>&#x25B8; Skills por framework</li>
+          <li>&#x25B8; Commands frecuentes</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">&#x1F4A1; La formula profesional</p>
+      <p class="text-sm text-agent-muted">
+        <strong class="text-agent-text">CLAUDE.md</strong> = instrucciones en lenguaje natural (que el modelo lee como contexto)<br>
+        <strong class="text-agent-text">settings.json</strong> = configuracion tecnica (que el sistema parsea como JSON)<br>
+        <strong class="text-agent-text">skills/</strong> = expertise on-demand (se carga solo cuando es relevante)<br>
+        <strong class="text-agent-text">agents/</strong> = especializacion (contexto aislado para tareas complejas)<br>
+        <strong class="text-agent-text">hooks</strong> = automatizacion (reaccion a eventos del ciclo de vida)<br>
+        <strong class="text-agent-text">rules/</strong> = convenciones path-specific (se inyectan automaticamente por glob)<br>
+        <strong class="text-agent-text">commands/</strong> = atajos simples (templates de prompt para acciones frecuentes)
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 9: Rules -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">9. Rules — Convenciones path-specific</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Las rules son el mecanismo para definir convenciones que se aplican <strong class="text-agent-text">automaticamente</strong> cuando Claude Code toca archivos en paths especificos. A diferencia de skills (que se cargan bajo demanda) o CLAUDE.md (que siempre esta presente), las rules se inyectan <strong class="text-agent-text">contextualmente</strong> basandose en globs.
+    </p>
+
+    {@html `<pre class="code-block text-sm mb-6 overflow-x-auto"><code># .claude/rules/api-rules.md
+---
+globs:
+  - "src/api/**/*.ts"
+  - "src/routes/api/**/*.ts"
+---
+
+# API Development Rules
+
+## ALWAYS:
+- Validate ALL inputs with Zod schemas before processing
+- Wrap every handler in try/catch with proper error responses
+- Return standardized error format: { error: string, code: number, details?: unknown }
+- Log errors with structured context (requestId, userId, endpoint)
+
+## NEVER:
+- Return raw database errors to the client
+- Use any/unknown types in API contracts
+- Skip authentication middleware on protected routes
+
+## Response Format:
+- 200: Success with data
+- 201: Created with new resource
+- 400: Validation error (include Zod parse errors)
+- 401: Unauthorized
+- 404: Not found
+- 500: Internal error (log full error, return generic message)</code></pre>`}
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Cuando Claude Code edita un archivo que matchea <code class="text-agent-accent">src/api/**/*.ts</code>, estas reglas se inyectan automaticamente como contexto. El agente aplica Zod, try/catch, y el formato de error estandarizado <strong class="text-agent-text">sin que tengas que pedirlo</strong>. Es como tener un linter inteligente que entiende convenciones de negocio, no solo reglas sintacticas.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">&#x1F4A1; Sabias que</p>
+      <p class="text-sm text-agent-muted">Puedes tener multiples rules que aplican al mismo archivo. Si un archivo esta en <code class="text-agent-accent">src/api/components/</code> y tienes rules para <code class="text-agent-accent">src/api/**</code> y <code class="text-agent-accent">src/**/components/**</code>, ambas se inyectan. Las rules se <strong class="text-agent-text">acumulan</strong>, no se sobreescriben. Esto permite composicion: reglas generales de API + reglas especificas de componentes API.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SECTION 10: Mental Model -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">10. Modelo mental: cuando usar cada pieza</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Con tantas piezas disponibles (hooks, skills, agents, rules, commands, permissions), la pregunta natural es: <strong class="text-agent-text">cuando uso cada una?</strong> Aqui tienes un arbol de decision rapido:
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-2 px-3 text-agent-accent">Necesitas...</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Usa...</th>
+            <th class="text-left py-2 px-3 text-agent-accent">Porque</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3">Reaccionar a una accion del agente</td>
+            <td class="py-2 px-3 font-mono text-agent-text">hooks</td>
+            <td class="py-2 px-3">Pre/PostToolUse interceptan acciones automaticamente</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3">Encapsular expertise de un framework</td>
+            <td class="py-2 px-3 font-mono text-agent-text">skills</td>
+            <td class="py-2 px-3">Se cargan on-demand, ahorran tokens, tienen contexto dinamico</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3">Delegar una tarea compleja</td>
+            <td class="py-2 px-3 font-mono text-agent-text">sub-agents</td>
+            <td class="py-2 px-3">Contexto aislado, herramientas especificas, paralelismo</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3">Aplicar convenciones a un path</td>
+            <td class="py-2 px-3 font-mono text-agent-text">rules</td>
+            <td class="py-2 px-3">Se inyectan automaticamente por glob, sin invocacion manual</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3">Un shortcut de prompt frecuente</td>
+            <td class="py-2 px-3 font-mono text-agent-text">commands</td>
+            <td class="py-2 px-3">Simple, sin frontmatter, /nombre y listo</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3">Controlar que puede hacer el agente</td>
+            <td class="py-2 px-3 font-mono text-agent-text">permissions</td>
+            <td class="py-2 px-3">allow/ask/deny con granularidad de herramienta y glob</td>
+          </tr>
+          <tr class="border-b border-agent-border/30">
+            <td class="py-2 px-3">Automatizar sin interfaz de usuario</td>
+            <td class="py-2 px-3 font-mono text-agent-text">headless</td>
+            <td class="py-2 px-3">-p para CI/CD, GitHub Actions, scripts</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
+      <p class="text-sm text-agent-muted">El principio rector es <strong class="text-agent-text">"just-in-time context"</strong>: cargar solo la informacion que el agente necesita, cuando la necesita. CLAUDE.md da el contexto global (siempre presente). Skills dan expertise especifica (cargada bajo demanda). Rules dan convenciones de path (inyectadas automaticamente). Hooks dan automatizacion (ejecutada por eventos). Cada pieza existe para evitar sobrecargar el contexto del agente con informacion irrelevante.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- InteractiveFlow -->
+  <!-- ═══════════════════════════════════════════════════════ -->
   <section class="mb-10">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-2xl font-bold text-agent-text">Escenario: Disena la Orquestacion</h2>
-      {#if !showScenario}
-        <button onclick={() => showScenario = true} class="btn-primary text-xs">
-          Iniciar escenario
+      <h2 class="text-2xl font-bold text-agent-text">Ecosistema .claude/</h2>
+      {#if !showFlow}
+        <button onclick={() => showFlow = true} class="btn-primary text-xs">
+          Explorar ecosistema
         </button>
       {/if}
     </div>
-    {#if !showScenario}
-      <div class="card bg-agent-accent/5 border-agent-accent/20">
-        <p class="text-agent-muted text-sm">Tu empresa quiere construir un sistema de IA que haga code review automatizado de Pull Requests. Deberas tomar decisiones de arquitectura en cada paso. Tus decisiones determinan la calidad del sistema final.</p>
-        <p class="text-sm text-agent-warning mt-2">Necesitas una puntuacion alta (excellent o good) para desbloquear el badge "Orquestador".</p>
-      </div>
-    {/if}
-    {#if showScenario}
-      <BranchingScenario
-        nodes={scenarioNodes}
-        startId="start"
-        title="Disena un Sistema de Code Review Multi-Agente"
-        onComplete={handleScenarioComplete}
+    {#if showFlow}
+      <InteractiveFlow
+        nodes={flowNodes}
+        edges={flowEdges}
+        title="Arquitectura del ecosistema .claude/"
+        challenges={flowChallenges}
+        onComplete={handleFlowComplete}
       />
     {/if}
   </section>
 
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- Quiz -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-2xl font-bold text-agent-text">Quiz: Claude Code Deep Dive</h2>
+      {#if !showQuiz}
+        <button onclick={() => showQuiz = true} class="btn-primary text-xs">
+          Iniciar quiz
+        </button>
+      {/if}
+    </div>
+    <p class="text-sm text-agent-muted mb-4">
+      Este quiz contribuye al badge <strong class="text-agent-accent">Claude Code Master</strong> — necesitas 90%+ en los modulos 4, 5 y 8.
+    </p>
+    {#if showQuiz}
+      <Quiz questions={quizQuestions} onComplete={handleQuizComplete} />
+    {/if}
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
   <!-- Completion -->
+  <!-- ═══════════════════════════════════════════════════════ -->
   {#if completed}
     <div class="card bg-agent-success/10 border-agent-success/30 text-center mb-8 fade-in">
-      <span class="text-4xl">🎭</span>
+      <span class="text-4xl">&#x1F52C;</span>
       <h3 class="text-xl font-bold text-agent-success mt-2">Modulo completado!</h3>
-      <p class="text-agent-muted mt-1">Ahora dominas los patrones de orquestacion multi-agente.</p>
+      <p class="text-agent-muted mt-1">Ahora dominas hooks, skills, sub-agents y el ecosistema completo de .claude/</p>
     </div>
   {/if}
 

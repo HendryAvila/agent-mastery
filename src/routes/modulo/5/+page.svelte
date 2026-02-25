@@ -2,7 +2,7 @@
   import { courseStore, allBadges } from '$lib/stores/course';
   import { modules } from '$lib/data/modules';
   import Quiz from '$lib/components/Quiz.svelte';
-  import InteractiveFlow from '$lib/components/InteractiveFlow.svelte';
+  import BranchingScenario from '$lib/components/BranchingScenario.svelte';
   import ModuleNav from '$lib/components/ModuleNav.svelte';
   import SourcesSection from '$lib/components/SourcesSection.svelte';
   import VocabularyFloat from '$lib/components/VocabularyFloat.svelte';
@@ -15,134 +15,286 @@
   let completed = $state(false);
   let showBadge = $state(false);
   let earnedBadge = $state<Badge | null>(null);
+
+  let showScenario = $state(false);
   let showQuiz = $state(false);
-  let showFlow = $state(false);
+  let scenarioDone = $state(false);
+  let quizDone = $state(false);
+  let scenarioScore = $state(0);
+  let scenarioMax = $state(18);
+  let quizScore = $state(0);
+  let quizMax = $state(5);
 
   courseStore.startModule(MODULE_ID);
 
-  // ─── InteractiveFlow: Minimal Agent Architecture ───
-  const flowNodes = [
-    { id: 'user', label: 'Usuario', description: 'El usuario envia una tarea o pregunta al agente. Este es el punto de entrada de cualquier interaccion agentica. El input puede ser texto libre, un comando estructurado, o una tarea de alto nivel.', icon: '👤', x: 8, y: 50 },
-    { id: 'parse', label: 'Parser de Input', description: 'Valida y normaliza el input del usuario antes de enviarlo al LLM. Puede incluir sanitizacion, extraccion de intenciones, o expansion de contexto con informacion del sistema (fecha, estado del proyecto, etc).', icon: '📋', x: 22, y: 50 },
-    { id: 'llm', label: 'Llamada al LLM', description: 'Se envia el historial de mensajes + definiciones de herramientas al modelo. El LLM decide si responder directamente con texto o si necesita invocar una herramienta para completar la tarea. Este es el cerebro del agente.', icon: '🧠', x: 40, y: 30 },
-    { id: 'decision', label: 'Decision', description: 'Checkpoint critico: se analiza la respuesta del LLM. Si contiene un tool_call, el flujo va hacia la ejecucion de herramientas. Si es texto plano sin tool_calls, la tarea esta completa y se devuelve al usuario.', icon: '🔀', x: 55, y: 50 },
-    { id: 'toolexec', label: 'Ejecutar Tool', description: 'Se extrae el nombre de la herramienta y los argumentos del tool_call, se validan contra el JSON Schema, se ejecuta la funcion correspondiente, y se captura el resultado (exito o error). Aqui vive la logica de retry y error handling.', icon: '⚙️', x: 70, y: 30 },
-    { id: 'result', label: 'Procesar Resultado', description: 'El resultado de la herramienta se formatea y se agrega al historial de mensajes como un tool_result. Esto permite al LLM ver que paso y decidir el siguiente paso. Incluye manejo de errores y truncamiento si el resultado es muy largo.', icon: '📊', x: 70, y: 70 },
-    { id: 'context', label: 'Gestion Contexto', description: 'Antes de la siguiente iteracion, se verifica el tamano del contexto. Si esta cerca del limite, se aplican estrategias: resumir mensajes antiguos, eliminar tool_results detallados, o comprimir el historial. Sin esto, el agente se queda sin ventana de contexto.', icon: '📏', x: 40, y: 70 },
-    { id: 'response', label: 'Respuesta Final', description: 'El LLM genero texto sin tool_calls, indicando que la tarea esta completa. Se devuelve la respuesta al usuario. El agente puede incluir metadata adicional: herramientas usadas, tokens consumidos, tiempo total.', icon: '✅', x: 92, y: 50 }
-  ];
+  function checkCompletion() {
+    if (scenarioDone && quizDone) {
+      const totalScore = quizScore + Math.round((scenarioScore / scenarioMax) * quizMax);
+      const totalMax = quizMax + quizMax;
+      courseStore.completeModule(MODULE_ID, totalScore, totalMax);
 
-  const flowEdges = [
-    { from: 'user', to: 'parse', label: 'Input' },
-    { from: 'parse', to: 'llm', label: 'Mensajes' },
-    { from: 'llm', to: 'decision', label: 'Respuesta' },
-    { from: 'decision', to: 'toolexec', label: 'tool_call' },
-    { from: 'decision', to: 'response', label: 'Texto final' },
-    { from: 'toolexec', to: 'result', label: 'Resultado' },
-    { from: 'result', to: 'context', label: 'Agregar al historial' },
-    { from: 'context', to: 'llm', label: 'Siguiente iteracion' }
-  ];
+      const badge = courseStore.unlockBadge('claude-pro');
+      if (badge) {
+        earnedBadge = badge;
+        showBadge = true;
+      }
+      completed = true;
+    }
+  }
 
-  const flowChallenges = [
-    { question: 'Donde ocurre la decision de usar herramientas o responder con texto?', targetNodeId: 'decision', hint: 'Es el punto de bifurcacion del flujo, donde se analiza si hay tool_calls en la respuesta.' },
-    { question: 'Que componente evita que el agente se quede sin tokens?', targetNodeId: 'context', hint: 'Gestiona el tamano del historial antes de cada nueva llamada al LLM.' },
-    { question: 'Si una herramienta falla, en que nodo se maneja el error?', targetNodeId: 'toolexec', hint: 'Es donde se ejecuta la herramienta y se implementan los retries.' },
-    { question: 'Donde se valida el input del usuario antes de enviarlo al modelo?', targetNodeId: 'parse', hint: 'Es el primer paso despues de recibir el input del usuario.' }
-  ];
+  function handleScenarioComplete(score: number, maxScore: number) {
+    scenarioDone = true;
+    scenarioScore = score;
+    scenarioMax = maxScore;
+    checkCompletion();
+  }
+
+  function handleQuizComplete(score: number, total: number) {
+    quizDone = true;
+    quizScore = score;
+    quizMax = total;
+    checkCompletion();
+  }
+
+  // ─── BranchingScenario: Bug Fix con Claude Code ───
+  const scenarioNodes: Record<string, { id: string; narrative: string; choices?: { text: string; nextId: string; points: number; feedback?: string }[]; outcome?: { title: string; description: string; score: number; maxScore: number; grade: 'excellent' | 'good' | 'needs-work' | 'critical'; lessons: string[] } }> = {
+    start: {
+      id: 'start',
+      narrative: 'Escenario: Son las 9 AM. Te llega un bug report en Jira: "El endpoint /api/invoices devuelve 500 cuando el cliente no tiene direccion de facturacion". El proyecto es una API en FastAPI con 80+ endpoints, SQLAlchemy 2.0, y 400+ tests.\n\nAbris Claude Code en la terminal. Es un proyecto que no tocas hace 2 semanas.\n\n\u00bfCual es tu PRIMER paso?',
+      choices: [
+        { text: 'Activo Plan Mode (Shift+Tab) y le pido a Claude Code que explore el codebase: estructura del endpoint, modelos de datos, y tests existentes', nextId: 'n2-explore', points: 3, feedback: 'Perfecto. Explore PRIMERO, act DESPUES. Plan Mode te deja entender el codebase sin riesgo de cambios accidentales. Este es el paso 1 del workflow de 4 fases.' },
+        { text: 'Le digo directamente: "arregla el bug en /api/invoices que da 500 cuando no hay direccion"', nextId: 'n2-dive', points: 0, feedback: 'Demasiado rapido. Sin entender la estructura, Claude Code va a adivinar donde esta el problema. Podria editar el archivo equivocado o no entender las relaciones entre modelos.' },
+        { text: 'Abro el codigo manualmente, busco el endpoint, y le paso el archivo exacto a Claude Code', nextId: 'n2-manual', points: 1, feedback: 'Funciona, pero desaprovechas la capacidad de Claude Code de explorar el codebase por vos. Plan Mode hace exactamente esto, mas rapido y con mas contexto.' },
+      ]
+    },
+    'n2-explore': {
+      id: 'n2-explore',
+      narrative: 'En Plan Mode, Claude Code exploro el codebase y te muestra:\n\n- El endpoint esta en src/routers/invoices.py linea 47\n- Usa InvoiceService.generate() que llama a BillingAddress.get_or_raise()\n- El modelo BillingAddress no tiene un caso para cliente sin direccion\n- Hay 12 tests en tests/routers/test_invoices.py pero ninguno cubre el caso "sin direccion"\n\nAhora tenes un mapa mental claro del problema. \u00bfComo procedes?',
+      choices: [
+        { text: 'Salgo de Plan Mode (Shift+Tab), escribo un prompt estructurado: Contexto (lo que explore) + Objetivo (fix el null case) + Constraint (no romper tests existentes)', nextId: 'n3-structured', points: 3, feedback: 'Excelente. El prompt estructurado con Context + Objective + Constraints es la forma mas efectiva de comunicarte con Claude Code. Le das toda la info que necesita sin ambiguedad.' },
+        { text: 'Le digo "arregla el bug" sin mas contexto, ya exploro todo', nextId: 'n3-vague', points: 1, feedback: 'Claude Code ya tiene contexto de la exploracion, pero un prompt vago puede llevar a una solucion que no se alinea con lo que vos esperabas. Mejor ser explicito.' },
+        { text: 'Le pido que arregle el bug Y refactorice todo el modulo de invoices de paso', nextId: 'n3-kitchen-sink', points: 0, feedback: 'Este es el patron Kitchen Sink: meter todo en un prompt. El bug es una cosa, el refactoring es otra. Mezclarlos lleva a cambios impredecibles y dificiles de revisar.' },
+      ]
+    },
+    'n2-dive': {
+      id: 'n2-dive',
+      narrative: 'Claude Code intento arreglar el bug directamente. Edito src/routers/invoices.py y agrego un try/except generico que atrapa TODOS los errores y devuelve un 400.\n\nEl bug original se "arregla" pero ahora cualquier error en el endpoint (incluso errores de base de datos) devuelve 400 en vez de 500. Enmascaras errores reales.\n\nEl tech lead te rechaza el PR: "Esto es un band-aid, no un fix".\n\n\u00bfComo replanteamos?',
+      choices: [
+        { text: 'Uso /clear para limpiar el contexto degradado, activo Plan Mode, y empiezo de nuevo con exploracion', nextId: 'n3-recover', points: 3, feedback: 'Correcto. Cuando una sesion va mal, /clear es tu mejor amigo. Limpia el contexto degradado y te da un fresh start. Mucho mejor que seguir corrigiendo sobre correcciones.' },
+        { text: 'Le digo "no, eso esta mal, arreglalo de otra forma" en la misma sesion', nextId: 'n3-spiral', points: 0, feedback: 'Este es el patron Correction Spiral. Cada correccion en la misma sesion degrada mas el contexto. Claude Code ve tus correcciones anteriores, se confunde con instrucciones contradictorias, y el resultado empeora.' },
+      ]
+    },
+    'n2-manual': {
+      id: 'n2-manual',
+      narrative: 'Encontraste el archivo manualmente. Le pasas el codigo a Claude Code.\n\nTiene el archivo pero no el contexto completo: no sabe que modelo usa, como se llama el servicio, ni que tests existen.\n\n\u00bfComo mejoras la situacion?',
+      choices: [
+        { text: 'Le pido que explore los modelos y tests relacionados antes de hacer cambios (Plan Mode)', nextId: 'n2-explore', points: 2, feedback: 'Bien, nunca es tarde para explorar. Plan Mode te hubiera dado todo esto en un paso.' },
+        { text: 'Le doy el fix exacto que quiero y que lo implemente', nextId: 'n3-vague', points: 1, feedback: 'Si ya sabes el fix, esto funciona. Pero le quitaste la posibilidad de encontrar una solucion mejor o de detectar problemas que no viste.' },
+      ]
+    },
+    'n3-structured': {
+      id: 'n3-structured',
+      narrative: 'Le escribiste:\n\n"Contexto: BillingAddress.get_or_raise() falla con 500 cuando el cliente no tiene direccion. El endpoint esta en src/routers/invoices.py:47, el servicio en src/services/invoice.py.\n\nObjetivo: Manejar el caso de cliente sin direccion devolviendo un 422 con mensaje descriptivo.\n\nConstraints: No modificar tests existentes. Agregar un test nuevo para este caso. Seguir el patron de error handling que ya usa el proyecto."\n\nClaude Code implementa el fix: modifica el servicio para hacer un check previo y devolver un error tipado. Agrega un test. Los 400+ tests existentes siguen pasando.\n\n\u00bfComo verificas antes de commitear?',
+      choices: [
+        { text: 'Corro los tests (pytest), verifico el git diff completo, y testeo el endpoint manualmente con curl', nextId: 'n4-verify', points: 3, feedback: 'Triple verificacion: tests automaticos + diff review + test manual. Esta es la practica #1 de todo usuario profesional de Claude Code. "Trust but verify" no es un slogan, es un proceso.' },
+        { text: 'Los tests pasan, hago commit directo', nextId: 'n4-skip-verify', points: 1, feedback: 'Los tests pasan, bien. Pero no revisaste el diff. Claude Code podria haber cambiado algo inesperado fuera del scope del bug. Siempre revisa el diff.' },
+        { text: 'Le pido a Claude Code que haga el commit automaticamente', nextId: 'n4-auto-commit', points: 0, feedback: 'NUNCA auto-commitees sin revisar. Es como firmar un contrato sin leerlo. El diff review es tu ultima linea de defensa antes de que el codigo entre al repo.' },
+      ]
+    },
+    'n3-vague': {
+      id: 'n3-vague',
+      narrative: 'Claude Code hace un fix que funciona, pero usa un patron de error handling diferente al del resto del proyecto. El fix esta correcto pero es inconsistente.\n\n\u00bfQue haces?',
+      choices: [
+        { text: 'Le pido que revise como se manejan errores en otros endpoints y que siga ese patron', nextId: 'n4-verify', points: 2, feedback: 'Buena recuperacion. Si le hubieras dado este constraint desde el principio, no tendrias que corregir.' },
+        { text: 'Lo acepto como esta, funciona', nextId: 'n4-skip-verify', points: 1, feedback: 'Funciona pero introduce inconsistencia. Con el tiempo, cada endpoint maneja errores diferente. Tech debt silencioso.' },
+      ]
+    },
+    'n3-kitchen-sink': {
+      id: 'n3-kitchen-sink',
+      narrative: 'Claude Code intento hacer el bug fix Y el refactoring en un solo paso. Resultado: 47 archivos modificados, 800+ lineas cambiadas.\n\nEl diff es imposible de revisar. Algunos tests fallan porque el refactoring rompio imports. No sabes si el bug esta arreglado porque todo cambio al mismo tiempo.\n\n\u00bfComo salvas la situacion?',
+      choices: [
+        { text: 'Uso /clear, empiezo de nuevo, y hago SOLO el bug fix. El refactoring sera una tarea separada', nextId: 'n3-recover', points: 3, feedback: 'Perfecto. Una tarea, un prompt, un commit. El Kitchen Sink es el error mas comun y el mas caro. /clear y fresh start.' },
+        { text: 'Intento salvar los cambios revertiendo solo los archivos que no necesitaba', nextId: 'n4-skip-verify', points: 1, feedback: 'Cherry-picking cambios de un diff de 800 lineas es un infierno. Es mas rapido empezar de cero con scope claro.' },
+      ]
+    },
+    'n3-recover': {
+      id: 'n3-recover',
+      narrative: 'Usaste /clear. Contexto limpio. Ahora estas en Plan Mode explorando el codebase correctamente.\n\nDespues de entender la estructura, escribis un prompt estructurado y Claude Code implementa un fix limpio.\n\n\u00bfComo verificas?',
+      choices: [
+        { text: 'Tests + git diff + prueba manual del endpoint', nextId: 'n4-verify', points: 3, feedback: 'La verificacion triple. Aprendiste de los errores anteriores.' },
+        { text: 'Tests pasan, commit directo', nextId: 'n4-skip-verify', points: 1, feedback: 'Mejor que antes, pero el diff review es una practica no-negociable.' },
+      ]
+    },
+    'n3-spiral': {
+      id: 'n3-spiral',
+      narrative: 'Cuarta correccion en la misma sesion. El contexto esta lleno de tus instrucciones contradictorias. Claude Code ahora mezcla partes de las 4 versiones anteriores.\n\nEl codigo es un Frankenstein. Ningun test pasa.\n\n\u00bfQue haces?',
+      choices: [
+        { text: '/clear y empezar de cero con Plan Mode + prompt estructurado', nextId: 'n3-recover', points: 3, feedback: 'Finalmente. /clear debio haber sido tu primera reaccion al ver que la sesion iba mal. Cada correccion sobre contexto degradado empeora las cosas.' },
+        { text: 'Sigo intentando en la misma sesion, a la quinta sera', nextId: 'outcome-critical', points: 0, feedback: 'El Correction Spiral es infinito. El contexto degradado no se arregla agregando mas contexto degradado. /clear es la unica salida.' },
+      ]
+    },
+    'n4-verify': {
+      id: 'n4-verify',
+      narrative: 'Verificacion completa:\n\n- pytest: 401/401 tests pasan (incluyendo el nuevo)\n- git diff: solo 3 archivos cambiados, todos dentro del scope\n- curl: GET /api/invoices?client_id=42 devuelve 422 con mensaje descriptivo\n\nTodo limpio. \u00bfComo haces el commit?',
+      choices: [
+        { text: 'Escribo un commit con conventional commits: "fix(invoices): handle missing billing address with 422 response" con descripcion del cambio', nextId: 'outcome-excellent', points: 3, feedback: 'Impecable. Conventional commits, scope claro, descripcion util. El commit message es documentacion para el futuro.' },
+        { text: 'Le pido a Claude Code que genere el commit message por mi', nextId: 'outcome-good', points: 2, feedback: 'Funciona, Claude Code genera buenos commit messages. Pero siempre revisalo antes de confirmar. A veces incluye demasiado detalle o un scope incorrecto.' },
+        { text: 'git commit -m "fix bug"', nextId: 'outcome-needs-work', points: 0, feedback: '"fix bug" no dice nada. En 6 meses, cuando busques este commit en el historial, no vas a saber que bug arregla, en que modulo, ni por que.' },
+      ]
+    },
+    'n4-skip-verify': {
+      id: 'n4-skip-verify',
+      narrative: 'Hiciste commit sin revisar el diff completo. El PR pasa CI, pero un companero nota que Claude Code modifico un archivo de migracion que no deberia haber tocado.\n\nTenes que revertir parte del commit y hacer un fixup. 30 minutos perdidos.\n\n\u00bfLeccion aprendida?',
+      choices: [
+        { text: 'Siempre revisar git diff antes de commitear. Los 2 minutos de revision te ahorran 30 de cleanup', nextId: 'outcome-needs-work', points: 2, feedback: 'Exacto. El diff review es la inversion de tiempo mas rentable en el workflow con agentes de codigo.' },
+        { text: 'El CI deberia haber detectado el problema, no es mi responsabilidad revisar cada linea', nextId: 'outcome-critical', points: 0, feedback: 'El CI detecta errores de build y tests, no cambios fuera de scope. La revision humana del diff detecta cosas que ningun CI puede: cambios innecesarios, archivos que no deberian haberse tocado, y patrones incorrectos.' },
+      ]
+    },
+    'n4-auto-commit': {
+      id: 'n4-auto-commit',
+      narrative: 'Claude Code hizo el commit. Pero incluyo un cambio en el .env.example que agrega una variable que no existe en produccion. Y el commit message dice "Update invoices module" sin explicar que cambio.\n\nEl PR es rechazado por el equipo. Tenes que revert, limpiar, y volver a hacer el proceso.\n\n\u00bfComo evitas esto la proxima vez?',
+      choices: [
+        { text: 'Nunca auto-commitear. Siempre: tests + diff review + commit message propio', nextId: 'outcome-needs-work', points: 2, feedback: 'Correcto. El commit es TU responsabilidad, no del agente. Vos firmas el cambio.' },
+        { text: 'Agregar una regla en CLAUDE.md para que no toque .env files', nextId: 'outcome-needs-work', points: 1, feedback: 'Eso previene UN caso, pero el problema de fondo es no revisar antes de commitear. La regla ayuda, la revision es obligatoria.' },
+      ]
+    },
+    // OUTCOMES
+    'outcome-excellent': {
+      id: 'outcome-excellent',
+      narrative: '',
+      outcome: {
+        title: 'Claude Code Pro',
+        description: 'Dominaste el workflow completo: Explore con Plan Mode, Plan con prompt estructurado, Implement con verificacion, y Commit con conventional commits. Asi trabaja un profesional con Claude Code.',
+        score: 18,
+        maxScore: 18,
+        grade: 'excellent',
+        lessons: [
+          'Explore PRIMERO con Plan Mode (Shift+Tab): entende el codebase antes de tocar nada',
+          'Prompts estructurados: Context + Objective + Constraints eliminan ambiguedad',
+          'Verificacion triple: tests + git diff + prueba manual es no-negociable',
+          '/clear entre tareas no relacionadas: contexto limpio = mejores resultados',
+          'Conventional commits con scope: documentacion para tu yo futuro'
+        ]
+      }
+    },
+    'outcome-good': {
+      id: 'outcome-good',
+      narrative: '',
+      outcome: {
+        title: 'Buen Trabajo',
+        description: 'Entiendes el workflow profesional con Claude Code. Algunas decisiones podrian optimizarse, pero tu enfoque general es solido.',
+        score: 12,
+        maxScore: 18,
+        grade: 'good',
+        lessons: [
+          'Plan Mode es tu primer paso: exploracion read-only antes de cualquier cambio',
+          'Un prompt vago genera codigo funcional pero inconsistente. Se especifico.',
+          'La verificacion no es opcional: tests + diff + prueba manual',
+          'Cuando una sesion va mal, /clear es mas rapido que seguir corrigiendo',
+          'El commit message es documentacion, no un tramite'
+        ]
+      }
+    },
+    'outcome-needs-work': {
+      id: 'outcome-needs-work',
+      narrative: '',
+      outcome: {
+        title: 'Necesitas Practica',
+        description: 'Cometiste errores comunes que todo usuario nuevo de Claude Code comete. La buena noticia: son faciles de corregir una vez que los reconoces.',
+        score: 6,
+        maxScore: 18,
+        grade: 'needs-work',
+        lessons: [
+          'NUNCA saltar la fase de exploracion: entender antes de actuar',
+          'El Kitchen Sink (todo en un prompt) es el error mas caro',
+          'Revisar git diff SIEMPRE: 2 minutos te ahorran 30 de cleanup',
+          '/clear cuando la sesion se degrada: no sigas corrigiendo sobre errores',
+          'El agente genera codigo, VOS sos responsable de lo que se commitea'
+        ]
+      }
+    },
+    'outcome-critical': {
+      id: 'outcome-critical',
+      narrative: '',
+      outcome: {
+        title: 'Riesgo Critico',
+        description: 'Tu workflow con Claude Code tiene problemas serios. Sin exploracion, sin verificacion, y con correction spirals, el agente te genera mas problemas de los que resuelve. Repasa este modulo.',
+        score: 2,
+        maxScore: 18,
+        grade: 'critical',
+        lessons: [
+          'El Correction Spiral es infinito: /clear y empezar de cero',
+          'Sin Plan Mode, Claude Code adivina. Y adivinar cuesta caro.',
+          'El diff review es TU responsabilidad, no del CI ni del agente',
+          'Commitear sin revisar es firmar un contrato sin leerlo',
+          'Claude Code es una herramienta poderosa: usada mal, es una herramienta de destruccion poderosa'
+        ]
+      }
+    },
+  };
 
   // ─── Quiz ───
   const quizQuestions = [
     {
-      question: 'Tu agente tiene un context window de 128K tokens. Despues de 50 tool calls, el contexto esta al 80%. Cual es la MEJOR estrategia?',
+      question: 'Estas trabajando en un proyecto complejo que no tocas hace semanas. Abris Claude Code. \u00bfCual es el primer paso del workflow profesional?',
       options: [
-        { text: 'Detener el agente inmediatamente y devolver lo que tenga', correct: false, explanation: 'Detener abruptamente pierde todo el trabajo acumulado. Hay estrategias mas inteligentes.' },
-        { text: 'Resumir los tool_results antiguos manteniendo solo las conclusiones clave, y continuar', correct: true, explanation: 'Correcto. La compresion selectiva mantiene el contexto relevante mientras libera espacio. Se resumen los resultados detallados de herramientas antiguas conservando los hallazgos importantes.' },
-        { text: 'Borrar todo el historial y empezar de cero', correct: false, explanation: 'Borrar todo el historial pierde el contexto de la tarea completa. El agente no sabria que ya hizo ni que falta.' },
-        { text: 'Aumentar el context window pagando mas tokens', correct: false, explanation: 'No siempre es posible aumentar el context window (tiene un maximo fijo), y simplemente tirar dinero al problema no es una estrategia de ingenieria.' }
+        { text: 'Escribir el prompt de lo que necesitas y dejar que Claude Code explore por su cuenta', correct: false, explanation: 'Claude Code va a explorar, pero sin Plan Mode puede empezar a editar archivos antes de tener el panorama completo. Vos controlas cuando pasa de lectura a escritura.' },
+        { text: 'Activar Plan Mode (Shift+Tab) y explorar: estructura, archivos relevantes, tests existentes', correct: true, explanation: 'Correcto. Plan Mode es read-only: Claude Code puede leer archivos, buscar codigo y analizar estructura, pero NO puede editar ni ejecutar comandos. Explore PRIMERO, act DESPUES.' },
+        { text: 'Leer el CLAUDE.md del proyecto para recordar las convenciones', correct: false, explanation: 'Claude Code lee el CLAUDE.md automaticamente al iniciar. No necesitas leerlo vos manualmente. Lo que si necesitas es explorar el estado actual del codigo con Plan Mode.' },
+        { text: 'Ejecutar los tests para ver si algo esta roto', correct: false, explanation: 'Correr tests es importante, pero es parte de la fase de verificacion, no de exploracion. Primero entende que vas a cambiar, despues verifica.' },
       ],
-      source: 'Anthropic - Building Effective AI Agents',
-      sourceUrl: 'https://www.anthropic.com/research/building-effective-agents'
+      source: 'Claude Code Best Practices',
+      sourceUrl: 'https://code.claude.com/docs/en/best-practices'
     },
     {
-      question: 'Observa este pseudocodigo de un agentic loop. Cual es el BUG?',
-      codeBlock: `while True:
-    response = llm.generate(messages, tools)
-    if response.tool_call:
-        result = execute_tool(response.tool_call)
-        messages.append({"role": "tool", "content": result})
-    else:
-        return response.text`,
+      question: 'Estas en tu tercer intento de corregir un bug en la misma sesion. Cada correccion introduce un nuevo problema. \u00bfQue patron de fracaso es y como lo solucionas?',
       options: [
-        { text: 'Falta agregar la respuesta del LLM (assistant message) al historial antes de agregar el tool_result', correct: true, explanation: 'Correcto! La API requiere que el mensaje del asistente (con el tool_call) se agregue al historial ANTES del tool_result. Sin esto, el modelo no sabe a que tool_call corresponde el resultado. El flujo correcto es: messages.append(response.message) y LUEGO messages.append(tool_result).' },
-        { text: 'El while True deberia ser un for loop con un maximo de iteraciones', correct: false, explanation: 'Tener un max_iterations es buena practica pero no es un bug funcional - el agente eventualmente responde sin tool_calls y sale del loop via return.' },
-        { text: 'Falta validar que response.tool_call tenga parametros validos', correct: false, explanation: 'La validacion de parametros es buena practica pero no es el bug principal. El codigo puede funcionar sin ella si el LLM genera parametros correctos.' },
-        { text: 'El execute_tool no maneja errores con try/except', correct: false, explanation: 'El manejo de errores es critico en produccion pero no es el bug del agentic loop en si. El flujo del mensaje es incorrecto.' }
-      ]
-    },
-    {
-      question: 'Por que un agente NO deberia reintentar indefinidamente una tool call fallida?',
-      options: [
-        { text: 'Porque es caro en tokens, puede sobrecargar servicios externos, y si la herramienta falla consistentemente, el agente necesita una estrategia alternativa (fallback tool o informar al usuario)', correct: true, explanation: 'Correcto. Los retries infinitos consumen tokens sin limite, pueden violar rate limits de APIs externas, y si el error es permanente (API dada de baja, parametros invalidos), reintentar nunca va a funcionar. La practica correcta: maximo 3 retries con backoff exponencial, luego fallback o escalamiento.' },
-        { text: 'Porque el LLM podria olvidar lo que estaba haciendo entre retries', correct: false, explanation: 'El LLM no olvida entre retries - mantiene el contexto en el historial de mensajes. Mientras el contexto este, el modelo sabe que estaba haciendo.' },
-        { text: 'Porque las herramientas solo pueden ejecutarse una vez', correct: false, explanation: 'Las herramientas pueden ejecutarse multiples veces. El problema no es tecnico sino estrategico y economico.' },
-        { text: 'Porque viola el principio de single responsibility', correct: false, explanation: 'El patron de retry no tiene relacion con SRP. El problema es practico: costo, rate limits y la posibilidad de errores permanentes.' }
-      ]
-    },
-    {
-      question: 'Que sucede si el LLM genera un tool_call con parametros invalidos segun el JSON Schema?',
-      options: [
-        { text: 'El sistema host debe validar contra el schema, rechazar la llamada, y enviar un mensaje de error al LLM para que corrija los parametros en la siguiente iteracion', correct: true, explanation: 'Correcto! El sistema host es responsable de validar los argumentos contra el JSON Schema ANTES de ejecutar la herramienta. Si son invalidos, se le devuelve al LLM un mensaje de error descriptivo para que pueda autocorregirse. Esto es parte fundamental del agentic loop.' },
-        { text: 'La herramienta se ejecuta igual y se espera que maneje el error internamente', correct: false, explanation: 'Ejecutar una herramienta con parametros invalidos es peligroso y puede causar efectos secundarios inesperados. La validacion debe ocurrir ANTES de la ejecucion.' },
-        { text: 'El LLM nunca genera parametros invalidos si el schema esta bien definido', correct: false, explanation: 'Falso. Incluso con schemas bien definidos, los LLMs pueden generar parametros invalidos ocasionalmente, especialmente en casos edge o con herramientas complejas. La validacion siempre es necesaria.' },
-        { text: 'Se ignora el tool_call y se pide al LLM que genere otro', correct: false, explanation: 'Ignorar silenciosamente el tool_call no le da al LLM informacion sobre que salio mal. Sin feedback, el modelo probablemente cometeria el mismo error.' }
-      ]
-    },
-    {
-      question: 'Cual es el componente MAS critico que diferencia un agente de un chatbot?',
-      options: [
-        { text: 'La interfaz de usuario', correct: false, explanation: 'La interfaz es irrelevante para la diferencia funcional. Un chatbot puede tener la misma UI que un agente.' },
-        { text: 'El agentic loop con capacidad de ejecutar herramientas y re-evaluar', correct: true, explanation: 'Correcto! Lo que define a un agente es el LOOP: la capacidad de llamar al LLM, ejecutar herramientas basandose en su decision, reinyectar los resultados, y repetir hasta completar la tarea. Un chatbot es una sola llamada al LLM. Un agente es un LOOP de llamadas con acciones intermedias.' },
-        { text: 'El modelo de lenguaje subyacente (LLM)', correct: false, explanation: 'El mismo LLM puede ser un chatbot o un agente dependiendo de como se use. El modelo es necesario pero no suficiente.' },
-        { text: 'La capacidad de recordar conversaciones previas', correct: false, explanation: 'La memoria es importante pero no es lo que define a un agente. Un chatbot puede tener memoria de conversacion y seguir siendo un chatbot.' }
-      ]
-    },
-    {
-      question: 'Estas disenando las herramientas para tu agente. Cual de estas definiciones es la MEJOR practica?',
-      codeBlock: `# Opcion A:
-{"name": "search", "description": "busca cosas"}
-
-# Opcion B:
-{"name": "search_documentation",
- "description": "Busca en la documentacion del proyecto usando palabras clave. Retorna los 5 fragmentos mas relevantes con path del archivo y numero de linea. Usar cuando el usuario pregunta sobre funcionalidad existente.",
- "parameters": {"query": {"type": "string", "description": "Palabras clave de busqueda"}}}`,
-      options: [
-        { text: 'Opcion A: es mas simple y el LLM es lo suficientemente inteligente para entender', correct: false, explanation: 'Los LLMs NO son magos. Una descripcion vaga como "busca cosas" no le dice al modelo CUANDO usar la herramienta, QUE busca, ni QUE retorna. Vas a tener errores de seleccion de herramienta constantes.' },
-        { text: 'Opcion B: nombre descriptivo, descripcion precisa con que retorna y cuando usarla, y parametros tipados', correct: true, explanation: 'Correcto! Las buenas definiciones de herramientas incluyen: nombre que indica accion y dominio, descripcion que explica que hace, que retorna, y cuando usarla, y parametros con tipos y descripciones. Esto reduce errores dramaticamente.' },
-        { text: 'Ninguna: es mejor usar nombres de una sola letra para ahorrar tokens', correct: false, explanation: 'Los tokens de las definiciones de herramientas son una fraccion minima del costo total. Ahorrar unos tokens ahi a cambio de ambiguedad genera mucho mas gasto en retries y errores.' },
-        { text: 'Depende del modelo: Claude necesita mas detalle, GPT menos', correct: false, explanation: 'TODOS los modelos se benefician de definiciones claras y detalladas. Es una buena practica universal, no especifica de un modelo.' }
+        { text: 'Kitchen Sink. Solucion: dividir la tarea en prompts mas pequenos.', correct: false, explanation: 'Kitchen Sink es meter multiples tareas en un prompt. Aqui el problema es diferente: estas corrigiendo repetidamente en una sesion degradada.' },
+        { text: 'Correction Spiral. Solucion: usar /clear y empezar de cero con un prompt limpio.', correct: true, explanation: 'Correcto. El Correction Spiral ocurre cuando corriges sobre correcciones en la misma sesion. El contexto se llena de instrucciones contradictorias y el resultado empeora. /clear borra todo y te da un fresh start.' },
+        { text: 'Infinite Exploration. Solucion: usar /compact para reducir el contexto.', correct: false, explanation: 'Infinite Exploration es cuando el agente lee demasiados archivos sin actuar. Aqui el problema es lo opuesto: esta actuando (mal) repetidamente.' },
+        { text: 'Over-specified CLAUDE.md. Solucion: simplificar las instrucciones del proyecto.', correct: false, explanation: 'El CLAUDE.md no es el problema. El problema es acumular correcciones contradictorias en la misma sesion.' },
       ],
-      source: 'Composio - How to Build Great Tools for AI Agents',
-      sourceUrl: 'https://composio.dev/blog/how-to-build-tools-for-ai-agents-a-field-guide'
+      source: 'Steve Kinney - Claude Code Deep Dive',
+      sourceUrl: 'https://www.builder.io/blog/claude-code'
+    },
+    {
+      question: 'Tu equipo usa Claude Code con Opus para todo. El costo mensual se disparo a $2000/desarrollador. \u00bfCual combinacion de tecnicas reduce mas el gasto?',
+      options: [
+        { text: 'Usar solo Sonnet para todo: es mas barato por token', correct: false, explanation: 'Sonnet es mas barato per-token, pero necesita mas iteraciones en tareas complejas (planning, arquitectura). El costo total puede ser similar o peor.' },
+        { text: '/clear entre tareas (50-70% ahorro) + opusplan strategy (Opus para planning, Sonnet para ejecucion)', correct: true, explanation: 'Correcto. /clear evita que el contexto crezca innecesariamente entre tareas no relacionadas (el mayor desperdicio). Opusplan usa Opus donde importa (reasoning) y Sonnet donde es suficiente (ejecucion). Juntos, pueden reducir costos 60-80%.' },
+        { text: 'Limitar Claude Code a 10 mensajes por sesion', correct: false, explanation: 'Limites artificiales reducen la productividad sin atacar la causa real del gasto: contexto innecesario y uso de Opus para tareas que no lo necesitan.' },
+        { text: 'Usar solo batch API para todo', correct: false, explanation: 'Batch API da 50% de descuento pero solo sirve para tareas no-interactivas (CI/CD, linting, reviews). No podes usarla para desarrollo interactivo diario.' },
+      ],
+      source: 'Claude Code - Cost Management',
+      sourceUrl: 'https://code.claude.com/docs/en/costs'
+    },
+    {
+      question: 'Claude Code termino de implementar un fix. Los tests pasan. \u00bfQue verificacion FALTA antes de commitear?',
+      options: [
+        { text: 'Nada, si los tests pasan el codigo esta bien', correct: false, explanation: 'Los tests verifican comportamiento, no scope. Claude Code pudo haber modificado archivos fuera del scope del fix (migraciones, configs, .env) que los tests no cubren.' },
+        { text: 'Revisar el git diff completo para verificar que solo se modificaron archivos dentro del scope', correct: true, explanation: 'Correcto. El diff review detecta cambios fuera de scope, archivos tocados innecesariamente, y patrones inconsistentes. Es la verificacion que ningun CI puede reemplazar. Tests + diff + prueba manual = verificacion completa.' },
+        { text: 'Pedirle a Claude Code que confirme que el cambio es correcto', correct: false, explanation: 'Claude Code SIEMPRE va a decir que su cambio es correcto. No es un revisor objetivo de su propio trabajo. El diff review lo haces VOS.' },
+        { text: 'Correr el linter para verificar el estilo', correct: false, explanation: 'El linter es util pero solo verifica estilo y syntax. No verifica que Claude Code haya tocado solo los archivos correctos ni que la logica sea la esperada.' },
+      ],
+      source: 'incident.io - Shipping Faster with Claude Code',
+      sourceUrl: 'https://incident.io/blog/shipping-faster-with-claude-code-and-git-worktrees'
+    },
+    {
+      question: 'Necesitas trabajar en 3 features al mismo tiempo. \u00bfCual es la forma mas eficiente de hacerlo con Claude Code?',
+      options: [
+        { text: 'Alternar entre ramas en la misma sesion de Claude Code, usando /clear entre features', correct: false, explanation: '/clear entre features esta bien, pero cambiar ramas en la misma terminal genera conflictos y confusion. Hay una solucion mejor.' },
+        { text: 'Abrir 3 ventanas de terminal, cada una con una sesion de Claude Code en la misma carpeta', correct: false, explanation: '3 sesiones en la misma carpeta van a pisar los cambios entre si. Cada sesion ve los archivos de las otras y se genera caos.' },
+        { text: 'Usar worktrees: "claude -w feature-name" crea un git worktree aislado con su propia sesion', correct: true, explanation: 'Correcto. Git worktrees crean copias aisladas del repo, cada una en su propia rama. Claude Code con -w crea un worktree y abre una sesion ahi. 3-5 sesiones paralelas sin conflictos. Es el patron de Boris Cherny e incident.io.' },
+        { text: 'Trabajar las 3 features secuencialmente, una a la vez', correct: false, explanation: 'Funciona pero es la opcion mas lenta. Los worktrees te dejan paralelizar sin riesgo de conflictos.' },
+      ],
+      source: 'Boris Cherny - 22 Tips for Claude Code',
+      sourceUrl: 'https://www.builder.io/blog/claude-code-tips'
     }
   ];
-
-  function handleFlowComplete(score: number, total: number) {
-    // Flow doesn't trigger badge, just tracks
-  }
-
-  function handleQuizComplete(score: number, total: number) {
-    courseStore.completeModule(MODULE_ID, score, total);
-    completed = true;
-    const badge = courseStore.unlockBadge('builder');
-    if (badge) {
-      earnedBadge = badge;
-      showBadge = true;
-    }
-  }
 </script>
 
 <svelte:head>
-  <title>{mod.title} | Agent Mastery</title>
+  <title>Modulo 5: {mod.title} | Agent Mastery</title>
 </svelte:head>
 
 <div class="max-w-4xl mx-auto px-4 py-8">
@@ -151,754 +303,776 @@
     <div class="flex items-center gap-3 mb-2">
       <span class="text-4xl">{mod.icon}</span>
       <div>
-        <span class="text-xs text-agent-accent uppercase tracking-wider font-bold">Modulo {MODULE_ID}</span>
+        <p class="text-agent-accent text-sm font-bold uppercase tracking-wider">Modulo {MODULE_ID}</p>
         <h1 class="text-3xl font-bold text-agent-text">{mod.title}</h1>
       </div>
     </div>
     <p class="text-agent-muted mt-2">{mod.subtitle}</p>
     <div class="flex items-center gap-4 mt-3">
-      <span class="badge bg-agent-accent/20 text-agent-accent">{mod.duration}</span>
-      <span class="badge bg-agent-card text-agent-muted border border-agent-border">{mod.type}</span>
+      <span class="text-xs text-agent-muted bg-agent-card px-3 py-1 rounded-full border border-agent-border">{mod.duration}</span>
+      <span class="text-xs text-agent-muted bg-agent-card px-3 py-1 rounded-full border border-agent-border">{mod.type}</span>
     </div>
   </div>
 
   <!-- Objectives -->
   <div class="card mb-8 fade-in">
-    <h2 class="text-lg font-bold text-agent-text mb-3">Objetivos de aprendizaje</h2>
+    <h2 class="text-lg font-bold text-agent-text mb-3">Objetivos del modulo</h2>
     <ul class="space-y-2">
       {#each mod.objectives as obj}
-        <li class="flex items-start gap-2 text-agent-muted">
-          <span class="text-agent-accent shrink-0 mt-0.5">&#9654;</span>
+        <li class="flex items-start gap-2 text-sm text-agent-muted">
+          <span class="text-agent-accent shrink-0 mt-0.5">&#9656;</span>
           {obj}
         </li>
       {/each}
     </ul>
   </div>
 
-  <!-- Section 1: La Arquitectura Minima -->
+  <!-- THEORY SECTION 1: El Workflow de 4 Fases -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">1. La Arquitectura Minima</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">El Workflow de 4 Fases</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Construir un agente suena intimidante, pero la realidad es que la arquitectura minima tiene solo <strong class="text-agent-text">tres componentes</strong>: una API de LLM, definiciones de herramientas, y un loop. Eso es todo. No necesitas un framework complejo para empezar.
+      Hay una diferencia enorme entre <strong class="text-agent-text">usar</strong> Claude Code y <strong class="text-agent-text">trabajar CON</strong> Claude Code. Usar es abrir la terminal y tirar prompts. Trabajar con es seguir un workflow disciplinado que maximiza la calidad del output y minimiza los errores.
     </p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El workflow profesional tiene 4 fases, y el orden <strong class="text-agent-highlight">no es negociable</strong>. Saltarte una fase es como empezar a construir una casa sin los planos: vas a tener que demoler y reconstruir.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
+      <p class="text-sm text-agent-muted">Anthropic mismo documentan este flujo en sus best practices: "Give Claude Code the context it needs before asking it to act." El equipo de incident.io, que corren 4-7 sesiones en paralelo, reportan que saltarse la exploracion duplica el tiempo de las tareas porque el agente va por caminos incorrectos que hay que revertir.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="card border-l-4 border-l-agent-accent bg-agent-dark">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#128269;</span>
+          <h3 class="text-agent-text font-bold">Fase 1: Explore</h3>
+        </div>
+        <p class="text-xs text-agent-accent font-bold mb-2">Shift+Tab &#8594; Plan Mode</p>
+        <p class="text-sm text-agent-muted mb-2">Usa Plan Mode para entender el codebase. Claude Code puede leer archivos, buscar codigo, analizar estructura, pero <strong class="text-agent-text">NO puede editar ni ejecutar comandos</strong>.</p>
+        <p class="text-xs text-agent-muted">Pregunta: "Que archivos estan involucrados en el endpoint /api/invoices? Que modelos usa? Que tests existen?"</p>
+      </div>
+
+      <div class="card border-l-4 border-l-purple-500 bg-agent-dark">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#128203;</span>
+          <h3 class="text-agent-text font-bold">Fase 2: Plan</h3>
+        </div>
+        <p class="text-xs text-purple-400 font-bold mb-2">Ctrl+G para aceptar plan</p>
+        <p class="text-sm text-agent-muted mb-2">Disena la solucion. Claude Code propone un plan basado en la exploracion. Vos lo revisas, ajustas, y aceptas. Para decisiones complejas, activa extended thinking.</p>
+        <p class="text-xs text-agent-muted">El plan debe ser lo suficientemente especifico para que la implementacion no tenga ambiguedad.</p>
+      </div>
+
+      <div class="card border-l-4 border-l-agent-success bg-agent-dark">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#9881;&#65039;</span>
+          <h3 class="text-agent-text font-bold">Fase 3: Implement</h3>
+        </div>
+        <p class="text-xs text-agent-success font-bold mb-2">Prompt estructurado: C+O+C</p>
+        <p class="text-sm text-agent-muted mb-2">Dale a Claude Code un prompt claro con <strong class="text-agent-text">Context</strong> (lo que existe), <strong class="text-agent-text">Objective</strong> (que hacer), y <strong class="text-agent-text">Constraints</strong> (como hacerlo).</p>
+        <p class="text-xs text-agent-muted">Verifica cada paso. Si algo sale mal, no corrijas en la misma sesion: usa /clear.</p>
+      </div>
+
+      <div class="card border-l-4 border-l-agent-warning bg-agent-dark">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-2xl">&#9989;</span>
+          <h3 class="text-agent-text font-bold">Fase 4: Commit</h3>
+        </div>
+        <p class="text-xs text-agent-warning font-bold mb-2">Tests + Diff + Manual = Commit</p>
+        <p class="text-sm text-agent-muted mb-2">Corre tests, revisa el git diff <strong class="text-agent-text">completo</strong>, testea manualmente si es UI. Solo despues de la triple verificacion, escribi el commit con conventional commits.</p>
+        <p class="text-xs text-agent-muted">NUNCA auto-commitees. El commit es TU firma sobre el codigo.</p>
+      </div>
+    </div>
+
+    <div class="bg-agent-dark border-l-4 border-l-agent-danger rounded-r-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun: Saltarse la exploracion</p>
+      <p class="text-sm text-agent-muted">El 90% de los problemas con Claude Code vienen de saltarse la Fase 1. Cuando le pedis que implemente algo sin contexto, adivina. Y un agente que adivina es un agente que genera codigo inconsistente, toca archivos que no deberia, y usa patrones equivocados. Plan Mode existe para evitar esto.</p>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 2: Plan Mode a Fondo -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Plan Mode a Fondo</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Plan Mode es la feature mas subestimada de Claude Code. Shift+Tab lo activa, Shift+Tab lo desactiva. Mientras esta activo, Claude Code esta en <strong class="text-agent-highlight">modo lectura</strong>: puede explorar todo el codebase, pero no puede modificar nada.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Pensalo como la diferencia entre ir a una libreria a hojear libros vs ir a comprar. En Plan Mode estas hojeando: lees, entendes, armas un mapa mental. Cuando desactivas Plan Mode, pasas a la accion con toda la informacion.
+    </p>
+
+    <div class="card bg-agent-dark mb-6">
+      <h3 class="text-agent-text font-bold mb-3">Que puede hacer Claude Code en Plan Mode</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <p class="text-xs text-agent-success font-bold mb-2">&#10003; Permitido (read-only)</p>
+          <ul class="space-y-1 text-sm text-agent-muted">
+            <li>&#8226; Leer archivos del proyecto</li>
+            <li>&#8226; Buscar codigo con grep/ripgrep</li>
+            <li>&#8226; Analizar la estructura del proyecto</li>
+            <li>&#8226; Listar directorios</li>
+            <li>&#8226; Explicar como funciona el codigo</li>
+            <li>&#8226; Proponer un plan de accion</li>
+          </ul>
+        </div>
+        <div>
+          <p class="text-xs text-agent-danger font-bold mb-2">&#10007; Bloqueado</p>
+          <ul class="space-y-1 text-sm text-agent-muted">
+            <li>&#8226; Editar archivos</li>
+            <li>&#8226; Crear archivos nuevos</li>
+            <li>&#8226; Ejecutar comandos de terminal</li>
+            <li>&#8226; Instalar paquetes</li>
+            <li>&#8226; Correr tests</li>
+            <li>&#8226; Hacer commits</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Prompts de exploracion efectivos</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      No basta con activar Plan Mode; hay que hacer las preguntas correctas. Aca van ejemplos reales de prompts de exploracion que le sacan el jugo a la fase de Explore:
+    </p>
+
+    {@html `<pre class="code-block text-xs mb-4"># Para entender un modulo que no tocas hace semanas:
+"Explorame el modulo de autenticacion: que archivos lo componen,
+que patron arquitectonico usa, y que tests tiene.
+Quiero un resumen de 5 lineas."
+
+# Para investigar un bug:
+"Busca todos los archivos involucrados en el endpoint
+GET /api/invoices. Trazame el flujo desde el router
+hasta la query de base de datos. Marcame donde podria
+fallar si el cliente no tiene billing address."
+
+# Para entender antes de refactorizar:
+"Mapeame todas las dependencias de InvoiceService:
+que clases lo usan, que clases usa, y que tests lo cubren.
+Quiero saber el blast radius si lo modifico."</pre>`}
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real: incident.io</p>
+      <p class="text-sm text-agent-muted">El equipo de incident.io reporta que usan Plan Mode como "sesion de onboarding" cada vez que retoman un area del codigo que no tocaron recientemente. Les toma 2-3 minutos de exploracion pero les ahorra 15-20 minutos de backtracking cuando el agente toma caminos incorrectos por falta de contexto.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Plan Mode vs Modo Normal: El modelo mental</h3>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La confusion mas comun es pensar que Plan Mode es "solo para planificar". En realidad, Plan Mode es un <strong class="text-agent-text">sandbox de lectura</strong>. Podes usarlo para cualquier tarea donde necesites informacion sin riesgo de efectos secundarios.
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-3 px-4 text-agent-accent font-bold">Escenario</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Plan Mode?</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Por que</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Entender un modulo antes de modificarlo</td>
+            <td class="py-3 px-4 text-agent-success">Si</td>
+            <td class="py-3 px-4">Necesitas info, no cambios</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Buscar donde se usa una funcion</td>
+            <td class="py-3 px-4 text-agent-success">Si</td>
+            <td class="py-3 px-4">Busqueda pura, zero edicion</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Evaluar el impacto de un cambio propuesto</td>
+            <td class="py-3 px-4 text-agent-success">Si</td>
+            <td class="py-3 px-4">Analisis de blast radius sin tocar nada</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Implementar el fix despues de planificar</td>
+            <td class="py-3 px-4 text-agent-danger">No</td>
+            <td class="py-3 px-4">Necesitas editar archivos</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-4">Correr tests para verificar</td>
+            <td class="py-3 px-4 text-agent-danger">No</td>
+            <td class="py-3 px-4">Tests requieren ejecutar comandos</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-agent-dark border-l-4 border-l-agent-danger rounded-r-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Error comun: Plan Mode como muleta</p>
+      <p class="text-sm text-agent-muted">Algunos devs se quedan en Plan Mode demasiado tiempo, explorando eternamente sin pasar a la accion. La exploracion debe tener un objetivo claro y un limite. Si despues de 3-4 preguntas en Plan Mode no tenes un plan concreto, el problema es que no sabes que queres hacer, no que te falta informacion.</p>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 3: Verificacion como Practica #1 -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Verificacion: La Practica #1</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Si te quedas con una sola idea de este modulo, que sea esta: <strong class="text-agent-highlight">"Trust but verify"</strong>. No es un slogan; es un proceso concreto con 3 pasos que ejecutas CADA VEZ que Claude Code termina de hacer cambios.
+    </p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Anthropic lo dice explicitamente en sus best practices: "Always review changes before committing." El equipo de incident.io lo confirma: los desarrolladores que revisan diffs encuentran problemas en el 30% de los cambios generados por agentes. No errores de sintaxis (esos los atrapan los tests), sino cambios fuera de scope, patrones inconsistentes, y archivos tocados innecesariamente.
+    </p>
+
+    <div class="card bg-agent-dark mb-6">
+      <h3 class="text-agent-text font-bold mb-3">La Triple Verificacion</h3>
+      <div class="space-y-4">
+        <div class="flex items-start gap-3">
+          <span class="text-agent-accent font-bold text-lg shrink-0">1.</span>
+          <div>
+            <p class="text-agent-text font-bold">Tests automaticos</p>
+            <p class="text-sm text-agent-muted">Corre toda la suite de tests. No solo los tests del archivo que cambio; todos. Un cambio en un servicio puede romper un test en otro modulo.</p>
+            {@html `<pre class="code-block text-xs mt-2">pytest                     # Toda la suite
+npm run test               # Frontend tests
+npm run check              # Type checking</pre>`}
+          </div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="text-agent-accent font-bold text-lg shrink-0">2.</span>
+          <div>
+            <p class="text-agent-text font-bold">Git diff completo</p>
+            <p class="text-sm text-agent-muted">Revisa CADA archivo modificado. Busca: archivos fuera de scope, cambios en configs que no pediste, imports removidos, y patrones inconsistentes con el resto del proyecto.</p>
+            {@html `<pre class="code-block text-xs mt-2">git diff --stat            # Vista rapida: que archivos cambiaron
+git diff                   # Diff completo linea por linea</pre>`}
+          </div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="text-agent-accent font-bold text-lg shrink-0">3.</span>
+          <div>
+            <p class="text-agent-text font-bold">Prueba manual</p>
+            <p class="text-sm text-agent-muted">Si es API: curl o Postman. Si es UI: screenshot o navegador. Si es CLI: ejecuta el comando. Los tests automaticos cubren los happy paths; la prueba manual cubre los edge cases que no pensaste testear.</p>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">La diferencia fundamental entre un chatbot y un agente es el <strong class="text-agent-text">agentic loop</strong>. Un chatbot es una sola llamada al LLM: pregunta &#x2192; respuesta. Un agente es un LOOP de llamadas donde el modelo puede ejecutar acciones intermedias, observar resultados, y decidir el siguiente paso. El loop es lo que le da al agente la capacidad de actuar en el mundo.</p>
+      <p class="text-sm text-agent-muted">La verificacion es tu <strong class="text-agent-text">ultima linea de defensa</strong>. Claude Code es increiblemente capaz, pero opera en un espacio probabilistico. Cada generacion tiene una distribucion de posibles outputs. La verificacion es lo que asegura que el output que obtuviste es el correcto para tu caso.</p>
     </div>
 
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">El agentic loop en pseudocodigo</p>
-      {@html `<pre class="code-block text-agent-highlight text-sm">messages = [{"role": "user", "content": tarea}]
-tools = [definir_herramientas()]
-
-while not done:
-    response = llm.generate(
-        messages=messages,
-        tools=tools
-    )
-
-    # Agregar la respuesta del asistente al historial
-    messages.append(response.message)
-
-    if response.has_tool_call:
-        # Ejecutar la herramienta
-        result = execute_tool(response.tool_call)
-        # Agregar el resultado al historial
-        messages.append({
-            "role": "tool",
-            "content": result
-        })
-    else:
-        # Sin tool_call = tarea completa
-        return response.text</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Las tres decisiones del loop</h3>
+    <h3 class="text-lg font-bold text-agent-text mb-3">El checklist de verificacion en la practica</h3>
     <p class="text-agent-muted leading-relaxed mb-3">
-      En cada iteracion del agentic loop, el LLM toma tres decisiones criticas:
+      No todos los cambios necesitan la misma intensidad de verificacion. Usa esta guia para calibrar cuanto revisar segun el riesgo:
     </p>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-4 text-center">
-        <p class="text-2xl mb-2">&#x2753;</p>
-        <p class="text-agent-accent font-bold text-sm">Necesito una herramienta?</p>
-        <p class="text-xs text-agent-muted mt-2">El modelo evalua si puede responder con su conocimiento interno o si necesita informacion/acciones externas.</p>
-      </div>
-      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-4 text-center">
-        <p class="text-2xl mb-2">&#x1F527;</p>
-        <p class="text-agent-accent font-bold text-sm">Cual herramienta uso?</p>
-        <p class="text-xs text-agent-muted mt-2">Si necesita una herramienta, elige entre las disponibles basandose en sus descripciones y la tarea actual.</p>
-      </div>
-      <div class="bg-agent-card border border-agent-accent/30 rounded-lg p-4 text-center">
-        <p class="text-2xl mb-2">&#x2705;</p>
-        <p class="text-agent-accent font-bold text-sm">Ya termine?</p>
-        <p class="text-xs text-agent-muted mt-2">Despues de cada accion, decide si la tarea esta completa o si necesita mas pasos. Si no hay tool_call, la tarea esta lista.</p>
-      </div>
-    </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Comparacion: script simple vs agente</h3>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-muted font-bold text-sm mb-2">Script tradicional (while True)</p>
-        {@html `<pre class="code-block text-xs text-agent-muted"># Script: secuencia FIJA de pasos
-while True:
-    line = input()
-    if "buscar" in line:
-        result = search(line)
-    elif "crear" in line:
-        result = create(line)
-    print(result)
-
-# Problema: los pasos estan hardcodeados.
-# No puede adaptarse a tareas nuevas.
-# No puede encadenar acciones dinamicamente.</pre>`}
-      </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm mb-2">Agente (agentic loop)</p>
-        {@html `<pre class="code-block text-xs text-agent-muted"># Agente: el LLM DECIDE los pasos
-while not done:
-    response = llm.generate(messages, tools)
-    messages.append(response.message)
-    if response.tool_call:
-        result = execute(response.tool_call)
-        messages.append(tool_result)
-
-# Ventaja: el LLM decide QUE hacer, CUANDO,
-# y en QUE ORDEN. Se adapta a cualquier tarea.
-# Encadena acciones dinamicamente.</pre>`}
-      </div>
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-3 px-4 text-agent-accent font-bold">Tipo de cambio</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Riesgo</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Verificacion minima</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Typo en documentacion</td>
+            <td class="py-3 px-4"><span class="text-xs bg-agent-success/20 text-agent-success px-2 py-0.5 rounded">Bajo</span></td>
+            <td class="py-3 px-4">git diff (30 seg)</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Bug fix en un endpoint</td>
+            <td class="py-3 px-4"><span class="text-xs bg-agent-warning/20 text-agent-warning px-2 py-0.5 rounded">Medio</span></td>
+            <td class="py-3 px-4">Tests + diff + curl (5 min)</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Refactoring de modulo completo</td>
+            <td class="py-3 px-4"><span class="text-xs bg-agent-danger/20 text-agent-danger px-2 py-0.5 rounded">Alto</span></td>
+            <td class="py-3 px-4">Tests + diff linea-por-linea + manual + peer review (15 min)</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-4">Cambio en autenticacion/seguridad</td>
+            <td class="py-3 px-4"><span class="text-xs bg-agent-danger/20 text-agent-danger px-2 py-0.5 rounded">Critico</span></td>
+            <td class="py-3 px-4">Todo lo anterior + security review dedicado</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted"><strong class="text-agent-text">Mini-SWE-Agent</strong> es un agente de apenas 100 lineas de Python que logro un 74% en SWE-bench Lite, un benchmark de resolucion de bugs reales en repositorios open-source. Demuestra que no necesitas un framework masivo para construir un agente efectivo. La clave esta en el loop, no en la complejidad.</p>
+      <p class="text-sm text-agent-muted">Steve Kinney (Builder.io) documenta que el <code class="text-agent-accent">git diff --stat</code> es el comando mas subestimado del workflow con Claude Code. Te muestra en 2 segundos que archivos fueron tocados y cuantas lineas cambiaron. Si esperabas 3 archivos y el diff muestra 12, algo salio mal antes de leer una sola linea de codigo.</p>
     </div>
-
-    <p class="text-agent-muted leading-relaxed">
-      El <strong class="text-agent-text">loop es el corazon</strong> de todo agente. Cada iteracion: (1) se envia el historial completo al LLM, (2) el modelo decide si usar herramientas o responder, (3) si usa herramientas, se ejecutan y el resultado vuelve al historial, (4) se repite hasta que el modelo decide que termino.
-    </p>
   </section>
 
-  <!-- Section 2: Definiendo Herramientas -->
+  <!-- THEORY SECTION 4: Los 5 Patrones de Fracaso -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">2. Definiendo Herramientas</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Los 5 Patrones de Fracaso</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Las herramientas son funciones que le das al LLM para que pueda actuar en el mundo real. Pero el modelo no las ejecuta directamente: genera un <strong class="text-agent-text">JSON estructurado</strong> que tu sistema interpreta y ejecuta. La calidad de tus definiciones de herramientas determina la calidad de las decisiones del agente.
+      Despues de observar cientos de sesiones de Claude Code (propias, del equipo, y de la comunidad), estos son los 5 patrones que mas dano causan. Conocerlos es la mitad de la batalla. Cada uno tiene un fix concreto.
     </p>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">5 herramientas: de simple a compleja</h3>
+    <!-- Patron 1: Kitchen Sink -->
+    <div class="card border-l-4 border-l-agent-danger mb-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-agent-danger font-bold text-lg">1.</span>
+        <h3 class="text-agent-text font-bold">Kitchen Sink</h3>
+        <span class="text-xs bg-agent-danger/20 text-agent-danger px-2 py-0.5 rounded ml-auto">Alto impacto</span>
+      </div>
+      <p class="text-sm text-agent-muted mb-3">Meter todo en un solo prompt: "arregla el bug, refactoriza el modulo, agrega tests, y actualizame la documentacion".</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="bg-agent-danger/10 rounded p-3">
+          <p class="text-xs text-agent-danger font-bold mb-1">Problema</p>
+          <p class="text-xs text-agent-muted">Claude Code intenta hacer todo a la vez. Genera un diff de 40+ archivos imposible de revisar. Los cambios se mezclan y si algo falla, no sabes que parte fue.</p>
+        </div>
+        <div class="bg-agent-success/10 rounded p-3">
+          <p class="text-xs text-agent-success font-bold mb-1">Fix</p>
+          <p class="text-xs text-agent-muted">Una tarea, un prompt, un commit. "Arregla el bug" es un prompt. "Refactoriza el modulo" es otro prompt, otro dia. Divide y conquista.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Patron 2: Correction Spiral -->
+    <div class="card border-l-4 border-l-agent-danger mb-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-agent-danger font-bold text-lg">2.</span>
+        <h3 class="text-agent-text font-bold">Correction Spiral</h3>
+        <span class="text-xs bg-agent-danger/20 text-agent-danger px-2 py-0.5 rounded ml-auto">Alto impacto</span>
+      </div>
+      <p class="text-sm text-agent-muted mb-3">"No, eso esta mal. Hacelo asi." "Tampoco. Proba de esta otra forma." El contexto se llena de instrucciones contradictorias y cada intento es peor.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="bg-agent-danger/10 rounded p-3">
+          <p class="text-xs text-agent-danger font-bold mb-1">Problema</p>
+          <p class="text-xs text-agent-muted">Claude Code ve tus 5 intentos anteriores y trata de satisfacer instrucciones contradictorias. El resultado es un Frankenstein de todos los intentos.</p>
+        </div>
+        <div class="bg-agent-success/10 rounded p-3">
+          <p class="text-xs text-agent-success font-bold mb-1">Fix</p>
+          <p class="text-xs text-agent-muted">Si el segundo intento falla: <strong class="text-agent-text">/clear</strong>. Empeza de cero con un prompt claro que incorpore las lecciones de los intentos fallidos. Contexto limpio = resultado limpio.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Patron 3: Over-specified CLAUDE.md -->
+    <div class="card border-l-4 border-l-agent-warning mb-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-agent-warning font-bold text-lg">3.</span>
+        <h3 class="text-agent-text font-bold">Over-specified CLAUDE.md</h3>
+        <span class="text-xs bg-agent-warning/20 text-agent-warning px-2 py-0.5 rounded ml-auto">Medio impacto</span>
+      </div>
+      <p class="text-sm text-agent-muted mb-3">Un CLAUDE.md de 5000 palabras que intenta cubrir cada caso posible. El agente se pierde en un mar de reglas, muchas contradictorias entre si.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="bg-agent-danger/10 rounded p-3">
+          <p class="text-xs text-agent-danger font-bold mb-1">Problema</p>
+          <p class="text-xs text-agent-muted">Mas instrucciones no significa mejores resultados. Despues de ~2500 tokens de instrucciones, la adherencia del agente empieza a bajar. Demasiadas reglas = ninguna regla se sigue bien.</p>
+        </div>
+        <div class="bg-agent-success/10 rounded p-3">
+          <p class="text-xs text-agent-success font-bold mb-1">Fix</p>
+          <p class="text-xs text-agent-muted">CLAUDE.md under 2.5K tokens con las reglas mas importantes. Para reglas especificas de carpetas, usa <code class="text-agent-accent">.claude/rules/</code> con globs que solo aplican a archivos relevantes.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Patron 4: Trust-then-Verify Gap -->
+    <div class="card border-l-4 border-l-agent-warning mb-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-agent-warning font-bold text-lg">4.</span>
+        <h3 class="text-agent-text font-bold">Trust-then-Verify Gap</h3>
+        <span class="text-xs bg-agent-warning/20 text-agent-warning px-2 py-0.5 rounded ml-auto">Medio impacto</span>
+      </div>
+      <p class="text-sm text-agent-muted mb-3">Aceptar el output de Claude Code sin revisar el diff. "Los tests pasan, debe estar bien."</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="bg-agent-danger/10 rounded p-3">
+          <p class="text-xs text-agent-danger font-bold mb-1">Problema</p>
+          <p class="text-xs text-agent-muted">Claude Code puede tocar archivos fuera del scope (migraciones, configs, .env). Los tests no detectan cambios de scope, solo comportamiento. Un archivo extra modificado pasa CI silenciosamente.</p>
+        </div>
+        <div class="bg-agent-success/10 rounded p-3">
+          <p class="text-xs text-agent-success font-bold mb-1">Fix</p>
+          <p class="text-xs text-agent-muted">La triple verificacion es innegociable: tests + git diff + prueba manual. Los 2 minutos de diff review te ahorran 30 de cleanup cuando el PR es rechazado.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Patron 5: Infinite Exploration -->
+    <div class="card border-l-4 border-l-agent-info mb-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-agent-info font-bold text-lg">5.</span>
+        <h3 class="text-agent-text font-bold">Infinite Exploration</h3>
+        <span class="text-xs bg-agent-info/20 text-agent-info px-2 py-0.5 rounded ml-auto">Bajo impacto</span>
+      </div>
+      <p class="text-sm text-agent-muted mb-3">El agente lee 30 archivos, analiza 15 dependencias, mapea todo el proyecto... y nunca hace el cambio. Se pierde en el analisis.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="bg-agent-danger/10 rounded p-3">
+          <p class="text-xs text-agent-danger font-bold mb-1">Problema</p>
+          <p class="text-xs text-agent-muted">El contexto se llena de contenido de archivos que no son relevantes para la tarea. Tokens gastados en leer, no en actuar. El agente pierde foco.</p>
+        </div>
+        <div class="bg-agent-success/10 rounded p-3">
+          <p class="text-xs text-agent-success font-bold mb-1">Fix</p>
+          <p class="text-xs text-agent-muted">Acotar el scope: "Solo miremos src/services/invoice.py y sus tests". Si el contexto ya esta inflado, /compact para comprimir. Redirigir al agente: "Suficiente exploracion, implementa X".</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 5: Structured Prompting -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Structured Prompting: La Formula C+O+C</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Un prompt mal estructurado lleva a resultados ambiguos. Un prompt bien estructurado lleva a resultados predecibles. La formula es simple: <strong class="text-agent-highlight">Context + Objective + Constraints</strong>. Siempre en ese orden.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4">
+        <p class="text-agent-danger font-bold text-sm mb-2">Prompt vago</p>
+        {@html `<pre class="code-block text-xs text-agent-muted">"Arregla el bug de invoices"</pre>`}
+        <p class="text-xs text-agent-muted mt-2">Claude Code no sabe que bug, donde buscar, ni que restricciones seguir. Va a explorar todo el modulo y hacer su mejor guess.</p>
+      </div>
+      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-4">
+        <p class="text-agent-success font-bold text-sm mb-2">Prompt estructurado (C+O+C)</p>
+        {@html `<pre class="code-block text-xs text-agent-muted">"CONTEXTO: El endpoint GET /api/invoices
+(src/routers/invoices.py:47) llama a
+BillingAddress.get_or_raise() que falla con
+500 cuando el cliente no tiene direccion.
+
+OBJETIVO: Manejar el caso sin direccion
+devolviendo 422 con mensaje descriptivo.
+
+CONSTRAINTS: No modificar tests existentes.
+Agregar test para el nuevo caso. Seguir el
+patron de error handling de src/routers/users.py"</pre>`}
+        <p class="text-xs text-agent-muted mt-2">Claude Code sabe exactamente donde buscar, que hacer, y como hacerlo. Zero ambiguedad.</p>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Desglose de cada componente</h3>
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-3 px-4 text-agent-accent font-bold">Componente</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Que incluir</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Ejemplo</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4 text-agent-highlight">Context</td>
+            <td class="py-3 px-4">Archivos relevantes, estado actual, comportamiento observado</td>
+            <td class="py-3 px-4 text-xs">"El servicio en src/services/auth.py usa JWT con PyJWT 2.8"</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4 text-agent-highlight">Objective</td>
+            <td class="py-3 px-4">Que queres lograr, resultado esperado</td>
+            <td class="py-3 px-4 text-xs">"Agregar refresh token con rotacion automatica"</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-4 text-agent-highlight">Constraints</td>
+            <td class="py-3 px-4">Patrones a seguir, archivos a no tocar, limites</td>
+            <td class="py-3 px-4 text-xs">"Seguir el patron de src/services/session.py. No tocar las migraciones."</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-agent-dark border-l-4 border-l-agent-accent rounded-r-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Tip: La referencia a archivos existentes es tu arma secreta</p>
+      <p class="text-sm text-agent-muted">Cuando le decis a Claude Code "seguir el patron de src/services/session.py", va a leer ese archivo y replicar su estilo. Es como darle un ejemplo concreto en lugar de explicar el patron abstractamente. Mas efectivo, menos tokens.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Prompts avanzados: multi-paso y condicionales</h3>
     <p class="text-agent-muted leading-relaxed mb-3">
-      Veamos como progresan las definiciones de herramientas en complejidad:
+      Para tareas mas complejas, el prompt puede incluir pasos secuenciales y condiciones. Esto le da a Claude Code un plan claro que puede seguir sin preguntarte en cada paso:
+    </p>
+
+    {@html `<pre class="code-block text-xs mb-4"># Prompt multi-paso con condiciones
+"1. Lee src/services/payment.py y mapea todas
+   las funciones publicas.
+
+2. Para cada funcion que no tenga docstring,
+   agrega una docstring Google style.
+
+3. Si alguna funcion tiene mas de 30 lineas,
+   NO la toques — marcala con un TODO.
+
+4. Corre pytest tests/services/test_payment.py
+   despues de cada cambio para verificar."</pre>`}
+
+    <div class="bg-agent-dark border-l-4 border-l-agent-info rounded-r-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real: Steve Kinney (Builder.io)</p>
+      <p class="text-sm text-agent-muted">Steve Kinney documenta que los prompts mas efectivos tienen 3 caracteristicas: son <strong class="text-agent-text">especificos</strong> (mencionan archivos exactos), son <strong class="text-agent-text">acotados</strong> (una tarea principal), y <strong class="text-agent-text">referencian ejemplos</strong> existentes en el codebase. Los prompts vagos generan resultados "correctos pero no lo que querias". Los prompts estructurados generan exactamente lo que necesitas.</p>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 6: Comandos Esenciales -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Los Comandos que Definen tu Productividad</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Claude Code tiene comandos que no solo hacen tu vida mas facil, sino que son esenciales para mantener la calidad del output. Saber cuando usar cada uno es la diferencia entre un usuario casual y un profesional.
     </p>
 
     <div class="space-y-4 mb-6">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Tool 1: read_file (basica)</p>
-        {@html `<pre class="code-block text-xs text-agent-muted">{
-  "name": "read_file",
-  "description": "Lee el contenido de un archivo. Retorna el texto completo con numeros de linea. Usar para inspeccionar codigo fuente o archivos de configuracion.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "path": {"type": "string", "description": "Ruta absoluta al archivo"}
-    },
-    "required": ["path"]
-  }
-}</pre>`}
-        <p class="text-xs text-agent-muted mt-2">Simple: un parametro, una accion, un resultado.</p>
+      <div class="card bg-agent-dark">
+        <div class="flex items-center gap-3 mb-2">
+          <code class="text-agent-accent font-bold text-lg">/clear</code>
+          <span class="text-xs bg-agent-accent/20 text-agent-accent px-2 py-0.5 rounded">Critico</span>
+        </div>
+        <p class="text-sm text-agent-muted mb-2">Borra TODO el contexto de la sesion. Es como cerrar y reabrir Claude Code, pero mas rapido. El CLAUDE.md se recarga automaticamente.</p>
+        <p class="text-xs text-agent-text font-bold mb-1">Cuando usarlo:</p>
+        <ul class="text-xs text-agent-muted space-y-1">
+          <li>&#8226; Entre tareas no relacionadas (bug fix &#8594; feature)</li>
+          <li>&#8226; Despues de un Correction Spiral (mas de 2 correcciones)</li>
+          <li>&#8226; Cuando notas que el output baja de calidad</li>
+        </ul>
+        <p class="text-xs text-agent-success mt-2">Ahorro estimado: 50-70% de tokens al no arrastrar contexto innecesario entre tareas.</p>
       </div>
 
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Tool 2: search_codebase (con enums)</p>
-        {@html `<pre class="code-block text-xs text-agent-muted">{
-  "name": "search_codebase",
-  "description": "Busca patrones en el codigo fuente usando regex. Retorna archivos y lineas que coinciden. Usar cuando necesitas encontrar donde se usa una funcion o una clase.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "pattern": {"type": "string", "description": "Patron regex a buscar"},
-      "file_type": {"type": "string", "enum": ["py", "js", "ts", "all"], "description": "Filtrar por tipo de archivo"},
-      "max_results": {"type": "integer", "default": 10, "description": "Maximo de resultados"}
-    },
-    "required": ["pattern"]
-  }
-}</pre>`}
-        <p class="text-xs text-agent-muted mt-2">Intermedia: enum para controlar opciones validas, default para parametros opcionales.</p>
+      <div class="card bg-agent-dark">
+        <div class="flex items-center gap-3 mb-2">
+          <code class="text-agent-accent font-bold text-lg">/compact</code>
+          <span class="text-xs bg-agent-warning/20 text-agent-warning px-2 py-0.5 rounded">Importante</span>
+        </div>
+        <p class="text-sm text-agent-muted mb-2">Comprime el contexto actual: resume mensajes largos, herramientas usadas, y resultados. Mantiene el hilo de la conversacion pero reduce el tamano.</p>
+        <p class="text-xs text-agent-text font-bold mb-1">Cuando usarlo:</p>
+        <ul class="text-xs text-agent-muted space-y-1">
+          <li>&#8226; Cuando una tarea larga esta al 60%+ del context window</li>
+          <li>&#8226; Cuando queres continuidad pero el contexto esta pesado</li>
+          <li>&#8226; Antes de la ultima fase de una tarea compleja</li>
+        </ul>
+        <p class="text-xs text-agent-muted mt-2">A diferencia de /clear, /compact mantiene un resumen de lo hecho. Es como tomar notas antes de un examen.</p>
       </div>
 
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Tool 3: run_command (con restricciones de seguridad)</p>
-        {@html `<pre class="code-block text-xs text-agent-muted">{
-  "name": "run_command",
-  "description": "Ejecuta un comando de terminal. SOLO para comandos de build, test, y lint. NO ejecuta comandos destructivos (rm -rf, drop, etc). Retorna stdout y stderr.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "command": {"type": "string", "description": "Comando a ejecutar (ej: pytest, npm test)"},
-      "working_dir": {"type": "string", "description": "Directorio de trabajo"},
-      "timeout": {"type": "integer", "default": 30, "description": "Timeout en segundos (max 120)"}
-    },
-    "required": ["command"]
-  }
-}</pre>`}
-        <p class="text-xs text-agent-muted mt-2">Con seguridad: la descripcion define explicita los LIMITES de lo que puede hacer.</p>
+      <div class="card bg-agent-dark">
+        <div class="flex items-center gap-3 mb-2">
+          <code class="text-agent-accent font-bold text-lg">/rewind</code>
+          <span class="text-xs bg-agent-info/20 text-agent-info px-2 py-0.5 rounded">Util</span>
+        </div>
+        <p class="text-sm text-agent-muted mb-2">Vuelve a un punto anterior de la conversacion. Los cambios del agente en archivos se revierten. Es un "undo" que deshace tanto el contexto como los cambios en disco.</p>
+        <p class="text-xs text-agent-text font-bold mb-1">Cuando usarlo:</p>
+        <ul class="text-xs text-agent-muted space-y-1">
+          <li>&#8226; Cuando el agente tomo un camino incorrecto en el ultimo paso</li>
+          <li>&#8226; Cuando queres probar una alternativa desde un punto anterior</li>
+          <li>&#8226; Cuando el agente modifico un archivo que no deberia haber tocado</li>
+        </ul>
+        <p class="text-xs text-agent-muted mt-2">Mas quirurgico que /clear: vuelve atras sin perder todo el contexto previo.</p>
       </div>
-
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Tool 4: create_pull_request (compleja, multiples params)</p>
-        {@html `<pre class="code-block text-xs text-agent-muted">{
-  "name": "create_pull_request",
-  "description": "Crea un Pull Request en GitHub. Requiere que los cambios esten commiteados en una rama. Retorna la URL del PR creado.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "title": {"type": "string", "description": "Titulo del PR (max 72 chars)"},
-      "body": {"type": "string", "description": "Descripcion con formato Markdown"},
-      "base": {"type": "string", "default": "main", "description": "Rama base"},
-      "head": {"type": "string", "description": "Rama con los cambios"},
-      "labels": {"type": "array", "items": {"type": "string"}, "description": "Labels a asignar"},
-      "draft": {"type": "boolean", "default": false, "description": "Crear como draft PR"}
-    },
-    "required": ["title", "body", "head"]
-  }
-}</pre>`}
-        <p class="text-xs text-agent-muted mt-2">Compleja: multiples tipos (string, array, boolean), defaults, y solo 3 requeridos de 6.</p>
-      </div>
-
-      <div class="bg-agent-dark border border-agent-danger/30 rounded-lg p-4">
-        <p class="text-xs text-agent-danger uppercase tracking-wider font-bold mb-2">Tool 5: deploy_to_staging (peligrosa, necesita confirmacion)</p>
-        {@html `<pre class="code-block text-xs text-agent-muted">{
-  "name": "deploy_to_staging",
-  "description": "ACCION DESTRUCTIVA: Despliega la rama actual al entorno de staging. Esto sobreescribe el deploy anterior. SIEMPRE pedir confirmacion al usuario antes de ejecutar.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "branch": {"type": "string", "description": "Rama a desplegar"},
-      "confirm": {"type": "boolean", "description": "DEBE ser true. El agente debe pedir confirmacion explicita al usuario antes de pasar true."}
-    },
-    "required": ["branch", "confirm"]
-  }
-}</pre>`}
-        <p class="text-xs text-agent-muted mt-2">Peligrosa: la descripcion dice "ACCION DESTRUCTIVA" y requiere confirmacion explicita.</p>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El principio "La descripcion es rey"</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      El LLM decide que herramienta usar basandose PRINCIPALMENTE en la descripcion. Una descripcion pobre = malas decisiones. Veamos tres versiones de la misma herramienta:
-    </p>
-
-    <div class="space-y-3 mb-4">
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-3">
-        <p class="text-agent-danger font-bold text-xs mb-1">Mala: "busca cosas"</p>
-        <p class="text-xs text-agent-muted">El modelo no sabe QUE busca, DONDE busca, ni QUE retorna. Habra errores constantes de seleccion de herramienta.</p>
-      </div>
-      <div class="bg-agent-warning/10 border border-agent-warning/30 rounded-lg p-3">
-        <p class="text-agent-warning font-bold text-xs mb-1">Regular: "Busca archivos en el proyecto"</p>
-        <p class="text-xs text-agent-muted">Mejor, pero no dice COMO busca (por nombre? por contenido?) ni QUE formato tiene el resultado.</p>
-      </div>
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-3">
-        <p class="text-agent-success font-bold text-xs mb-1">Buena: "Busca patrones regex en el codigo fuente. Retorna archivos y numeros de linea que coinciden. Usar cuando el usuario pregunta donde se define o se usa una funcion."</p>
-        <p class="text-xs text-agent-muted">Dice QUE hace, COMO busca, QUE retorna, y CUANDO usarla. El modelo puede decidir correctamente.</p>
-      </div>
-    </div>
-
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Crear herramientas con demasiados parametros opcionales "por si acaso". Cada parametro que agregas es una decision mas que el modelo tiene que tomar. Si tu herramienta tiene 15 parametros, el modelo va a equivocarse frecuentemente. Mejor: herramientas enfocadas con 2-5 parametros cada una.</p>
     </div>
 
     <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">Anthropic recomienda que cada herramienta tenga un "uso sugerido" en la descripcion: <strong class="text-agent-text">"Usar cuando..."</strong>. Esto le dice al modelo CUANDO elegir esta herramienta en lugar de otra. Sin esta guia, el modelo a veces usa search_codebase cuando deberia usar read_file, o viceversa. La frase "Usar cuando..." reduce estos errores de seleccion significativamente.</p>
+      <p class="text-sm text-agent-accent font-bold mb-1">La regla practica</p>
+      <p class="text-sm text-agent-muted"><strong class="text-agent-text">/rewind</strong> si el ultimo paso salio mal. <strong class="text-agent-text">/compact</strong> si la sesion esta larga pero queres seguir. <strong class="text-agent-text">/clear</strong> si cambias de tarea o la sesion esta degradada. Cuando tengas dudas: <strong class="text-agent-text">/clear siempre es safe</strong>.</p>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 7: Worktrees para Trabajo Paralelo -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Worktrees: Trabajo Paralelo sin Conflictos</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Una de las ventajas mas poderosas de Claude Code es que podes correr <strong class="text-agent-highlight">multiples sesiones en paralelo</strong>. Pero no en la misma carpeta (se pisan los cambios). La solucion: git worktrees.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Un worktree es una copia aislada de tu repo, con su propia rama, en un directorio separado. Claude Code con la flag <code class="text-agent-accent">-w</code> crea un worktree automaticamente y abre una sesion ahi.
+    </p>
+
+    {@html `<pre class="code-block text-xs mb-4"># Abrir 3 sesiones paralelas, cada una en su worktree
+claude -w feature-auth         # Worktree 1: feature de autenticacion
+claude -w fix-invoice-bug      # Worktree 2: bug fix de invoices
+claude -w refactor-db-layer    # Worktree 3: refactoring de DB
+
+# Cada worktree tiene su rama, su filesystem, su sesion
+# No hay conflictos entre sesiones</pre>`}
+
+    <div class="bg-agent-dark border-l-4 border-l-agent-info rounded-r-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real: incident.io</p>
+      <p class="text-sm text-agent-muted">El equipo de incident.io corre 4-7 sesiones de Claude Code en paralelo usando worktrees. Su workflow: abrir un tmux con 4 panes, cada pane es un worktree con su propia sesion de Claude Code. Un desarrollador puede supervisar 4 tareas simultaneamente, revisando diffs conforme cada sesion termina.</p>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Tipos de parametros disponibles</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Tipo</th>
-              <th class="text-left text-agent-text py-2 pr-4">Ejemplo</th>
-              <th class="text-left text-agent-text py-2">Cuando usar</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">string</td><td class="py-2 pr-4">"src/main.py"</td><td class="py-2">Texto libre: paths, queries, nombres</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">integer</td><td class="py-2 pr-4">10, 50, 100</td><td class="py-2">Limites, conteos, lineas</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">boolean</td><td class="py-2 pr-4">true / false</td><td class="py-2">Flags on/off: dry_run, verbose</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">enum</td><td class="py-2 pr-4">["py", "js", "ts"]</td><td class="py-2">Opciones restringidas predefinidas</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">array</td><td class="py-2 pr-4">["tag1", "tag2"]</td><td class="py-2">Listas de items: labels, files</td></tr>
-            <tr><td class="py-2 pr-4 text-agent-accent">object</td><td class="py-2 pr-4">&#x7B;"key": "val"&#x7D;</td><td class="py-2">Datos anidados: configs, metadata</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <div class="bg-agent-dark border-l-4 border-l-agent-accent rounded-r-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Patron Boris Cherny: 3-5 sesiones activas</p>
+      <p class="text-sm text-agent-muted">Boris Cherny (autor de "22 Tips for Claude Code") recomienda mantener 3-5 sesiones activas usando worktrees. Su flujo: iniciar una sesion con un prompt bien estructurado, pasar a la siguiente, y volver a revisar cuando cada sesion termina. La clave es que los prompts iniciales sean lo suficientemente buenos para que el agente pueda trabajar de forma autonoma mientras vos atendes otra sesion.</p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-4">
-        <p class="text-agent-success font-bold text-sm mb-2">Buenas practicas</p>
-        <ul class="space-y-1 text-sm text-agent-muted">
-          <li>Nombre descriptivo (verbo + dominio)</li>
-          <li>Descripcion con QUE hace, QUE retorna, CUANDO usarla</li>
-          <li>Parametros tipados con descripciones</li>
-          <li>Constraints claros (enums, defaults, required)</li>
-          <li>Herramientas pequeñas y enfocadas (SRP)</li>
-          <li>Marcar acciones peligrosas en la descripcion</li>
+    <h3 class="text-lg font-bold text-agent-text mb-3">Cuando worktrees, cuando /clear</h3>
+    <div class="overflow-x-auto mb-4">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-3 px-4 text-agent-accent font-bold">Situacion</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Solucion</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Tareas secuenciales en la misma rama</td>
+            <td class="py-3 px-4"><code class="text-agent-accent">/clear</code> entre tareas</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Tareas paralelas en ramas diferentes</td>
+            <td class="py-3 px-4"><code class="text-agent-accent">claude -w nombre</code> por tarea</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4">Bug urgente mientras trabajas en una feature</td>
+            <td class="py-3 px-4"><code class="text-agent-accent">claude -w hotfix-nombre</code> sin tocar la sesion de feature</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-4">Code review de un PR de otro dev</td>
+            <td class="py-3 px-4"><code class="text-agent-accent">claude -w review-pr-123</code> sesion aislada para el review</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- THEORY SECTION 8: Seleccion de Modelo y Costos -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Seleccion de Modelo y Costos</h2>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Claude Code te permite elegir que modelo usa. La estrategia correcta no es "siempre el mas caro" ni "siempre el mas barato". Es usar cada modelo donde brilla.
+    </p>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">La estrategia opusplan</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      La idea es simple: <strong class="text-agent-highlight">Opus para planificar, Sonnet para ejecutar</strong>. Opus tiene mejor reasoning y toma decisiones arquitectonicas superiores. Sonnet es mas rapido y mas barato para tareas de implementacion directa.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="card bg-agent-dark border-t-4 border-t-purple-500">
+        <h4 class="text-purple-400 font-bold text-sm mb-2">Opus (planificacion)</h4>
+        <ul class="text-xs text-agent-muted space-y-1">
+          <li>&#8226; Explorar codebases complejos</li>
+          <li>&#8226; Disenar arquitectura</li>
+          <li>&#8226; Tomar decisiones de refactoring</li>
+          <li>&#8226; Debug de problemas complejos</li>
+          <li>&#8226; Code review critico</li>
         </ul>
+        <p class="text-xs text-agent-warning mt-2">Mejor reasoning, mas lento, mas caro</p>
       </div>
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4">
-        <p class="text-agent-danger font-bold text-sm mb-2">Anti-patrones</p>
-        <ul class="space-y-1 text-sm text-agent-muted">
-          <li>Nombres vagos: "do_stuff", "helper"</li>
-          <li>Descripcion: "hace cosas"</li>
-          <li>Parametros sin tipos ni descripcion</li>
-          <li>Una herramienta que hace 10 cosas diferentes</li>
-          <li>15+ parametros opcionales</li>
-          <li>Sin indicar acciones destructivas</li>
+
+      <div class="card bg-agent-dark border-t-4 border-t-agent-accent">
+        <h4 class="text-agent-accent font-bold text-sm mb-2">Sonnet (ejecucion)</h4>
+        <ul class="text-xs text-agent-muted space-y-1">
+          <li>&#8226; Implementar planes ya definidos</li>
+          <li>&#8226; Escribir tests</li>
+          <li>&#8226; Generar boilerplate</li>
+          <li>&#8226; Tareas de formato/linting</li>
+          <li>&#8226; Cambios simples y repetitivos</li>
         </ul>
+        <p class="text-xs text-agent-success mt-2">Mas rapido, mas barato, suficiente para ejecucion</p>
       </div>
     </div>
 
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">El SDK de Anthropic para agentes define las herramientas de Claude Code con nombres como <code class="text-agent-accent">Read</code>, <code class="text-agent-accent">Write</code>, <code class="text-agent-accent">Edit</code>, <code class="text-agent-accent">Bash</code>, <code class="text-agent-accent">Grep</code>. Cada una hace UNA cosa bien. No hay una herramienta "FileManager" que lea, escriba, busque, y borre. La granularidad permite al modelo elegir la accion correcta con mayor precision. Menos ambiguedad = menos errores.</p>
-    </div>
-  </section>
-
-  <!-- Section 3: El Context Window -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">3. El Context Window</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      El <strong class="text-agent-text">context window</strong> es la cantidad maxima de tokens que el LLM puede procesar en una sola llamada (input + output combinados). Es el cuello de botella numero 1 de cualquier agente. Pero el verdadero cuello de botella no es solo el tamaño: es el <strong class="text-agent-highlight">costo</strong>.
-    </p>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Que es un token?</h3>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Un token es la unidad basica que procesa un LLM. No es exactamente una palabra ni un caracter. En ingles, 1 token &#x2248; 4 caracteres &#x2248; 0.75 palabras. En codigo, los tokens son mas "caros": una linea de Python puede ser 10-20 tokens. Los simbolos especiales, imports, y nombres largos de funciones consumen mas tokens de lo que esperas.
-    </p>
-
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-3">Context windows y costos actuales (2026)</p>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Modelo</th>
-              <th class="text-left text-agent-text py-2 pr-4">Context Window</th>
-              <th class="text-left text-agent-text py-2 pr-4">Input/1M tokens</th>
-              <th class="text-left text-agent-text py-2">Output/1M tokens</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Claude Opus 4.6</td><td class="py-2 pr-4">200K tokens</td><td class="py-2 pr-4">$15</td><td class="py-2">$75</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Claude Sonnet 4</td><td class="py-2 pr-4">200K tokens</td><td class="py-2 pr-4">$3</td><td class="py-2">$15</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">GPT-4.1</td><td class="py-2 pr-4">1M tokens</td><td class="py-2 pr-4">$2</td><td class="py-2">$8</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Gemini 2.5 Pro</td><td class="py-2 pr-4">1M tokens</td><td class="py-2 pr-4">$1.25</td><td class="py-2">$10</td></tr>
-            <tr><td class="py-2 pr-4">Claude Haiku 3.5</td><td class="py-2 pr-4">200K tokens</td><td class="py-2 pr-4">$0.80</td><td class="py-2">$4</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Rakuten uso agentes de codigo en un codebase de <strong class="text-agent-text">12.5 millones de lineas</strong>. El desafio no fue el context window sino la seleccion inteligente de QUE meter en el contexto. Usaron una combinacion de indices de codigo, busqueda semantica, y mapas de dependencias para que el agente solo viera los archivos relevantes para cada tarea. Sin esta estrategia, llenar el contexto con codigo irrelevante degradaba dramaticamente la calidad.</p>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El verdadero problema: costo, no tamaño</h3>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Tener 1M tokens de contexto suena genial, pero llenar esos 1M tokens cuesta dinero en cada llamada. Un agente que hace 30 iteraciones con 500K tokens de contexto puede costar $50+ por tarea. La gestion inteligente del contexto no es solo tecnica, es <strong class="text-agent-text">financiera</strong>.
-    </p>
-
-    <p class="text-agent-muted leading-relaxed mb-3">
-      <strong class="text-agent-text">Estrategias de gestion de contexto:</strong>
-    </p>
-    <div class="space-y-3 mb-4">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm">Sliding Window</p>
-        <p class="text-sm text-agent-muted mt-1">Mantener solo los ultimos N mensajes. Simple pero pierde contexto antiguo que puede ser relevante.</p>
-        {@html `<pre class="code-block text-xs mt-2">def sliding_window(messages, max_tokens=50000):
-    """Mantiene los ultimos mensajes hasta el limite de tokens."""
-    total = 0
-    result = []
-    for msg in reversed(messages):
-        tokens = count_tokens(msg)
-        if total + tokens > max_tokens:
-            break
-        result.insert(0, msg)
-        total += tokens
-    return result</pre>`}
-      </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm">Summarization</p>
-        <p class="text-sm text-agent-muted mt-1">Usar el LLM para resumir periodicamente el historial, reemplazando mensajes detallados con un resumen compacto. Mantiene la esencia sin los detalles.</p>
-        {@html `<pre class="code-block text-xs mt-2">def compress_context(messages, threshold=0.8):
-    """Cuando el contexto pasa el umbral, resume mensajes antiguos."""
-    if count_tokens(messages) / MAX_CONTEXT < threshold:
-        return messages
-    # Tomar los mensajes mas viejos (excepto system prompt)
-    old = messages[1:-10]  # Mantener system + ultimos 10
-    summary = llm.summarize(old)
-    return [messages[0], {"role": "system", "content": summary}] + messages[-10:]</pre>`}
-      </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-accent font-bold text-sm">RAG (Retrieval-Augmented Generation)</p>
-        <p class="text-sm text-agent-muted mt-1">Almacenar informacion en una base de datos vectorial y recuperar solo los fragmentos relevantes para cada iteracion. Ideal para grandes bases de codigo.</p>
-        {@html `<pre class="code-block text-xs mt-2">def rag_retrieve(query, top_k=5):
-    """Busca los fragmentos mas relevantes en la vector DB."""
-    embedding = embed(query)
-    results = vector_db.search(embedding, top_k=top_k)
-    context = "\\n---\\n".join([r.text for r in results])
-    return {"role": "system", "content": f"Contexto relevante:\\n{context}"}</pre>`}
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Cuando el contexto se agota</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Que pasa cuando un agente se queda sin context window en medio de una tarea? Hay varias estrategias de recuperacion:
-    </p>
-    <ul class="space-y-2 text-sm text-agent-muted mb-4">
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">1.</span> <strong class="text-agent-text">Checkpoint y resume:</strong> Guardar el estado actual de la tarea, resumir lo hecho, y empezar una nueva sesion con el resumen como contexto.</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">2.</span> <strong class="text-agent-text">Divide and conquer:</strong> Dividir la tarea grande en sub-tareas que quepan cada una en el context window.</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">3.</span> <strong class="text-agent-text">Graceful degradation:</strong> Informar al usuario que la tarea es demasiado grande y sugerir como partirla.</li>
-    </ul>
-
-    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">Claude Code usa una estrategia avanzada de compresion de contexto: cuando se acerca al limite, <strong class="text-agent-text">resume automaticamente los tool results antiguos</strong> manteniendo solo las conclusiones clave. Un tool result que mostraba 500 lineas de un archivo se comprime a "Lei src/main.py: contiene el endpoint principal con 3 rutas GET y 2 POST". Asi libera miles de tokens manteniendo la informacion esencial.</p>
-    </div>
-
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">La regla del 80%: nunca dejes que el contexto supere el 80% de su capacidad. Reserva siempre un 20% para la respuesta del modelo y posibles tool results inesperadamente largos. Si tu context window es de 200K tokens, empieza a comprimir cuando llegues a 160K. Esperar hasta el 95% es jugartela: un tool result grande puede exceder el limite y causar un error.</p>
-    </div>
-  </section>
-
-  <!-- Section 4: Error Handling para Tool Calls -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">4. Error Handling para Tool Calls</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Las herramientas fallan. APIs caidas, rate limits, timeouts, parametros invalidos. Un agente sin manejo de errores es una bomba de tiempo. La pregunta no es SI va a fallar, sino CUANDO y COMO reacciona.
-    </p>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Patron 1: Retry con backoff exponencial</h3>
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Para errores transitorios (rate limits, timeouts temporales)</p>
-      {@html `<pre class="code-block text-agent-highlight text-sm">MAX_RETRIES = 3
-BASE_DELAY = 1  # segundos
-
-def execute_tool_with_retry(tool_call):
-    for attempt in range(MAX_RETRIES):
-        try:
-            result = execute_tool(tool_call)
-            return {"status": "success", "data": result}
-
-        except RateLimitError:
-            delay = BASE_DELAY * (2 ** attempt)  # 1s, 2s, 4s
-            sleep(delay)
-
-        except ValidationError as e:
-            # Error permanente: no reintentar
-            return {"status": "error",
-                    "message": f"Parametros invalidos: {e}"}
-
-        except TimeoutError:
-            if attempt == MAX_RETRIES - 1:
-                return {"status": "error",
-                        "message": "Herramienta no respondio"}
-
-    return {"status": "error",
-            "message": "Max retries alcanzado"}</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Patron 2: Circuit breaker</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Si una herramienta falla repetidamente, el circuit breaker la "desconecta" temporalmente para evitar desperdiciar tokens y tiempo en retries inutiles:
-    </p>
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">class CircuitBreaker:
-    def __init__(self, failure_threshold=5, reset_timeout=60):
-        self.failures = 0
-        self.threshold = failure_threshold
-        self.reset_timeout = reset_timeout
-        self.state = "CLOSED"      # Normal: permite llamadas
-        self.last_failure = None
-
-    def call(self, tool_func, *args):
-        if self.state == "OPEN":
-            # Circuito abierto: no intentar
-            if time.now() - self.last_failure > self.reset_timeout:
-                self.state = "HALF_OPEN"  # Probar de nuevo
-            else:
-                return {"status": "error",
-                        "message": "Herramienta temporalmente deshabilitada"}
-
-        try:
-            result = tool_func(*args)
-            self.failures = 0
-            self.state = "CLOSED"
-            return result
-        except Exception as e:
-            self.failures += 1
-            self.last_failure = time.now()
-            if self.failures >= self.threshold:
-                self.state = "OPEN"  # Abrir circuito
-            raise e</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Patron 3: Fallback chain</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Si la herramienta principal falla, intenta con una alternativa. Si esa tambien falla, pide ayuda al humano:
-    </p>
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      {@html `<pre class="code-block text-agent-highlight text-sm">def search_with_fallback(query):
-    # Intento 1: busqueda semantica (rapida, precisa)
-    try:
-        return vector_search(query)
-    except VectorDBError:
-        pass
-
-    # Intento 2: busqueda por regex (mas lenta, menos precisa)
-    try:
-        return regex_search(query)
-    except SearchError:
-        pass
-
-    # Intento 3: graceful degradation
-    return {
-        "status": "partial",
-        "message": f"No pude buscar '{query}' automaticamente. "
-                   f"Podrias buscar manualmente en el proyecto?"
-    }</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El kill switch: siempre ten una salida de emergencia</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Todo agente necesita un mecanismo para DETENERSE. Sin un kill switch, un agente puede entrar en un loop infinito consumiendo tokens sin limite. Dos mecanismos basicos:
-    </p>
-    <ul class="space-y-2 text-sm text-agent-muted mb-4">
-      <li class="flex items-start gap-2"><span class="text-agent-danger shrink-0">!</span> <strong class="text-agent-text">Max iteraciones:</strong> El agente se detiene despues de N iteraciones del loop, sin importar que. (ej: max_iterations=25)</li>
-      <li class="flex items-start gap-2"><span class="text-agent-danger shrink-0">!</span> <strong class="text-agent-text">Token budget:</strong> El agente se detiene cuando ha consumido X tokens totales. Esto controla el costo maximo por tarea.</li>
-    </ul>
-
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Crear un agente con <code class="text-agent-accent">while True</code> sin condicion de salida. Si la herramienta falla con un error que no se maneja, o el LLM entra en un loop de tool calls repetitivas, el agente puede consumir miles de dolares en tokens antes de que alguien se de cuenta. SIEMPRE pon un max_iterations y un token_budget.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
-        <p class="text-2xl mb-1">&#x1F504;</p>
-        <p class="text-agent-text font-bold text-sm">Retry</p>
-        <p class="text-xs text-agent-muted mt-1">Errores transitorios (rate limit, timeout). Max 3 intentos con backoff.</p>
-      </div>
-      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
-        <p class="text-2xl mb-1">&#x1F500;</p>
-        <p class="text-agent-text font-bold text-sm">Fallback</p>
-        <p class="text-xs text-agent-muted mt-1">Tool alternativa si la principal falla. Degradacion gradual.</p>
-      </div>
-      <div class="bg-agent-card border border-agent-border rounded-lg p-4 text-center">
-        <p class="text-2xl mb-1">&#x1F6D1;</p>
-        <p class="text-agent-text font-bold text-sm">Kill Switch</p>
-        <p class="text-xs text-agent-muted mt-1">Detencion forzada: max iteraciones o token budget excedido.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Section 5: El Agente Minimo Viable -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">5. El Agente Minimo Viable</h2>
-    <p class="text-agent-muted leading-relaxed mb-4">
-      Combinemos todo: definiciones de herramientas + agentic loop + error handling + gestion de contexto = un agente funcional. Este es el esqueleto que subyace a TODOS los agentes, desde los mas simples hasta Claude Code.
-    </p>
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Agente completo en pseudocodigo</p>
-      {@html `<pre class="code-block text-agent-highlight text-sm">class MinimalAgent:
-    def __init__(self, tools, system_prompt, max_iterations=25,
-                 token_budget=100000):
-        self.tools = tools
-        self.system_prompt = system_prompt
-        self.max_iterations = max_iterations
-        self.token_budget = token_budget
-        self.tokens_used = 0
-
-    def run(self, user_task):
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": user_task}
-        ]
-
-        for i in range(self.max_iterations):
-            # 0. Verificar presupuesto de tokens
-            if self.tokens_used > self.token_budget:
-                return "Token budget excedido. Tarea parcial."
-
-            # 1. Llamar al LLM
-            response = llm.generate(
-                messages=messages,
-                tools=self.tools
-            )
-            messages.append(response.message)
-            self.tokens_used += response.usage.total_tokens
-
-            # 2. Verificar si hay tool_calls
-            if not response.tool_calls:
-                return response.text  # Tarea completa
-
-            # 3. Ejecutar cada tool_call
-            for tool_call in response.tool_calls:
-                # Validar parametros contra el schema
-                if not validate_params(tool_call):
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": "Error: parametros invalidos"
-                    })
-                    continue
-
-                result = execute_with_retry(tool_call)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(result)
-                })
-
-            # 4. Gestionar contexto
-            if count_tokens(messages) > MAX_CONTEXT * 0.8:
-                messages = compress_context(messages)
-
-        return "Max iteraciones alcanzado"</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Recorrido linea por linea</h3>
-    <div class="space-y-2 mb-4">
-      <div class="flex items-start gap-3 p-2 bg-agent-dark rounded border border-agent-border">
-        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">__init__</span>
-        <p class="text-xs text-agent-muted">Configura las herramientas disponibles, el system prompt (personalidad del agente), limites de iteraciones y presupuesto de tokens.</p>
-      </div>
-      <div class="flex items-start gap-3 p-2 bg-agent-dark rounded border border-agent-border">
-        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">run()</span>
-        <p class="text-xs text-agent-muted">Recibe la tarea del usuario, inicializa el historial de mensajes, y arranca el loop principal.</p>
-      </div>
-      <div class="flex items-start gap-3 p-2 bg-agent-dark rounded border border-agent-border">
-        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">Paso 0</span>
-        <p class="text-xs text-agent-muted">Kill switch financiero: si el agente ya gasto demasiados tokens, se detiene antes de hacer otra llamada al LLM.</p>
-      </div>
-      <div class="flex items-start gap-3 p-2 bg-agent-dark rounded border border-agent-border">
-        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">Paso 1</span>
-        <p class="text-xs text-agent-muted">Envia TODO el historial + herramientas al LLM. El modelo ve la conversacion completa y decide que hacer.</p>
-      </div>
-      <div class="flex items-start gap-3 p-2 bg-agent-dark rounded border border-agent-border">
-        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">Paso 2</span>
-        <p class="text-xs text-agent-muted">Si el LLM NO hizo tool_calls, significa que quiere responder con texto. La tarea esta completa. Se sale del loop.</p>
-      </div>
-      <div class="flex items-start gap-3 p-2 bg-agent-dark rounded border border-agent-border">
-        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">Paso 3</span>
-        <p class="text-xs text-agent-muted">Valida parametros, ejecuta cada herramienta con retry, y agrega los resultados al historial para que el LLM los vea en la siguiente iteracion.</p>
-      </div>
-      <div class="flex items-start gap-3 p-2 bg-agent-dark rounded border border-agent-border">
-        <span class="text-agent-accent text-xs font-mono shrink-0 mt-0.5">Paso 4</span>
-        <p class="text-xs text-agent-muted">Si el contexto esta al 80% de capacidad, comprime mensajes antiguos para liberar espacio antes de la siguiente iteracion.</p>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Tu agente minimo vs Claude Code: la brecha</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      El agente minimo que acabas de ver tiene las mismas piezas fundamentales que Claude Code. La diferencia esta en la sofisticacion de cada pieza:
-    </p>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Aspecto</th>
-              <th class="text-left text-agent-text py-2 pr-4">Tu agente minimo</th>
-              <th class="text-left text-agent-text py-2">Claude Code</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Tools</td><td class="py-2 pr-4">2-5 herramientas</td><td class="py-2">20+ herramientas especializadas</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Error handling</td><td class="py-2 pr-4">Retry basico</td><td class="py-2">Circuit breaker + fallback + human escalation</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Memoria</td><td class="py-2 pr-4">Solo context window</td><td class="py-2">Context + CLAUDE.md + MEMORY.md (episodica)</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">Seguridad</td><td class="py-2 pr-4">Basica</td><td class="py-2">Sandbox, permisos, confirmacion de acciones</td></tr>
-            <tr><td class="py-2 pr-4">Observabilidad</td><td class="py-2 pr-4">Ninguna</td><td class="py-2">Logs, metricas, trazas de cada accion</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <h3 class="text-lg font-bold text-agent-text mb-3">Las 4 palancas de ahorro</h3>
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="border-b border-agent-border">
+            <th class="text-left py-3 px-4 text-agent-accent font-bold">Tecnica</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Ahorro</th>
+            <th class="text-left py-3 px-4 text-agent-text font-bold">Como</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4 text-agent-highlight">/clear entre tareas</td>
+            <td class="py-3 px-4 text-agent-success font-bold">50-70%</td>
+            <td class="py-3 px-4">Elimina contexto acumulado que no necesitas</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4 text-agent-highlight">opusplan</td>
+            <td class="py-3 px-4 text-agent-success font-bold">30-50%</td>
+            <td class="py-3 px-4">Opus solo para planning, Sonnet para el resto</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-4 text-agent-highlight">Batch API</td>
+            <td class="py-3 px-4 text-agent-success font-bold">50%</td>
+            <td class="py-3 px-4">Para tareas no-interactivas: CI, reviews, linting</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-4 text-agent-highlight">Prompt structures</td>
+            <td class="py-3 px-4 text-agent-success font-bold">20-30%</td>
+            <td class="py-3 px-4">Prompts claros = menos iteraciones = menos tokens</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">El consejo de Anthropic es claro: <strong class="text-agent-text">empieza simple y agrega complejidad solo cuando la necesites</strong>. No construyas un framework de 10,000 lineas para tu primer agente. Empieza con el loop minimo, agrega una herramienta, prueba que funciona, y luego agrega otra. La complejidad prematura es el enemigo de los agentes que realmente funcionan.</p>
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave: El costo real no es el per-token</p>
+      <p class="text-sm text-agent-muted">El mayor gasto no viene de tokens caros, viene de <strong class="text-agent-text">tokens desperdiciados</strong>: contexto que se arrastra entre tareas, sesiones con correction spirals que no llegan a nada, y exploraciones infinitas que consumen sin producir. Un /clear a tiempo ahorra mas que negociar precios con Anthropic.</p>
     </div>
 
-    <div class="bg-agent-accent/10 border border-agent-accent/30 rounded-lg p-4">
-      <p class="text-agent-accent font-bold text-sm mb-2">Resumen de componentes del agente minimo:</p>
-      <ul class="space-y-1 text-sm text-agent-muted">
-        <li><span class="text-agent-accent">1.</span> System prompt para configurar el comportamiento</li>
-        <li><span class="text-agent-accent">2.</span> Agentic loop con limite de iteraciones (stop condition)</li>
-        <li><span class="text-agent-accent">3.</span> Validacion de parametros contra JSON Schema</li>
-        <li><span class="text-agent-accent">4.</span> Manejo de multiples tool_calls por respuesta</li>
-        <li><span class="text-agent-accent">5.</span> Retries para errores transitorios</li>
-        <li><span class="text-agent-accent">6.</span> Token budget como kill switch financiero</li>
-        <li><span class="text-agent-accent">7.</span> Compresion de contexto cuando se acerca al limite</li>
-      </ul>
+    <h3 class="text-lg font-bold text-agent-text mb-3">Anatomia de una sesion costosa vs una eficiente</h3>
+    <p class="text-agent-muted leading-relaxed mb-3">
+      Veamos dos desarrolladores haciendo la misma tarea (un bug fix) con costos radicalmente diferentes:
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4">
+        <p class="text-agent-danger font-bold text-sm mb-2">Dev A: $4.20 por el bug fix</p>
+        <ul class="text-xs text-agent-muted space-y-1">
+          <li>&#8226; Prompt vago &#8594; exploracion excesiva</li>
+          <li>&#8226; 3 correction spirals sin /clear</li>
+          <li>&#8226; Opus para todo (incluyendo escribir tests)</li>
+          <li>&#8226; Contexto de 180K tokens al final</li>
+          <li>&#8226; Total: 45 minutos, resultado mediocre</li>
+        </ul>
+      </div>
+      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-4">
+        <p class="text-agent-success font-bold text-sm mb-2">Dev B: $0.85 por el mismo fix</p>
+        <ul class="text-xs text-agent-muted space-y-1">
+          <li>&#8226; Plan Mode &#8594; prompt C+O+C</li>
+          <li>&#8226; /clear despues de Plan Mode</li>
+          <li>&#8226; Sonnet para implementacion</li>
+          <li>&#8226; Contexto de 40K tokens al final</li>
+          <li>&#8226; Total: 15 minutos, resultado excelente</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="bg-agent-dark border-l-4 border-l-agent-accent rounded-r-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">La metrica que importa: costo por tarea completada</p>
+      <p class="text-sm text-agent-muted">No midas el costo por token ni por sesion. Medi el <strong class="text-agent-text">costo por tarea completada exitosamente</strong>. Un prompt Opus de $2 que resuelve el problema en un intento es mas barato que 5 prompts Sonnet de $0.50 cada uno que no llegan a nada. La eficiencia viene del workflow, no del modelo.</p>
     </div>
   </section>
 
-  <!-- InteractiveFlow -->
+  <!-- BranchingScenario -->
   <section class="mb-10">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-2xl font-bold text-agent-text">Diagrama Interactivo</h2>
-      {#if !showFlow}
-        <button onclick={() => showFlow = true} class="btn-primary text-xs">
-          Explorar arquitectura
-        </button>
-      {/if}
-    </div>
-    {#if showFlow}
-      <InteractiveFlow
-        nodes={flowNodes}
-        edges={flowEdges}
-        title="Arquitectura del Agentic Loop"
-        challenges={flowChallenges}
-        onComplete={handleFlowComplete}
+    {#if !showScenario}
+      <button onclick={() => showScenario = true} class="btn-primary w-full justify-center">
+        Iniciar escenario: Bug Fix con Claude Code
+      </button>
+    {:else}
+      <BranchingScenario
+        nodes={scenarioNodes}
+        startId="start"
+        title="Escenario: Arreglar un Bug con Claude Code"
+        onComplete={handleScenarioComplete}
       />
     {/if}
   </section>
 
   <!-- Quiz -->
   <section class="mb-10">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-2xl font-bold text-agent-text">Quiz: Construye tu Primer Agente</h2>
-      {#if !showQuiz}
-        <button onclick={() => showQuiz = true} class="btn-primary text-xs">
-          Iniciar quiz
-        </button>
-      {/if}
-    </div>
-    {#if showQuiz}
+    {#if !showQuiz}
+      <button onclick={() => showQuiz = true} class="btn-primary w-full justify-center">
+        Comenzar el quiz
+      </button>
+    {:else}
       <Quiz questions={quizQuestions} onComplete={handleQuizComplete} />
     {/if}
   </section>
 
-  <!-- Completion -->
+  <!-- Completion message -->
   {#if completed}
     <div class="card bg-agent-success/10 border-agent-success/30 text-center mb-8 fade-in">
-      <span class="text-4xl">⚡</span>
-      <h3 class="text-xl font-bold text-agent-success mt-2">Modulo completado!</h3>
-      <p class="text-agent-muted mt-1">Ya conoces la arquitectura para construir un agente desde cero.</p>
+      <span class="text-4xl block mb-3">&#128187;</span>
+      <h3 class="text-xl font-bold text-agent-success mb-2">Modulo completado!</h3>
+      <p class="text-agent-muted">Ahora sabes como trabajar CON Claude Code como un profesional: el workflow de 4 fases, Plan Mode, prompts estructurados, verificacion, y las tecnicas para evitar los patrones de fracaso. Tu productividad con agentes de codigo acaba de dar un salto.</p>
     </div>
   {/if}
 
+  <!-- Sources -->
   <SourcesSection sources={mod.sources} />
+
+  <!-- Nav -->
   <ModuleNav currentModule={MODULE_ID} />
 </div>
 
+<!-- Vocabulary Float -->
 <VocabularyFloat moduleId={MODULE_ID} />
 
+<!-- Badge Notification -->
 {#if showBadge && earnedBadge}
   <BadgeNotification badge={earnedBadge} onClose={() => showBadge = false} />
 {/if}

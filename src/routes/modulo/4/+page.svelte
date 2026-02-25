@@ -1,7 +1,8 @@
 <script lang="ts">
   import { courseStore, allBadges } from '$lib/stores/course';
   import { modules } from '$lib/data/modules';
-  import BranchingScenario from '$lib/components/BranchingScenario.svelte';
+  import Quiz from '$lib/components/Quiz.svelte';
+  import InteractiveFlow from '$lib/components/InteractiveFlow.svelte';
   import ModuleNav from '$lib/components/ModuleNav.svelte';
   import SourcesSection from '$lib/components/SourcesSection.svelte';
   import VocabularyFloat from '$lib/components/VocabularyFloat.svelte';
@@ -16,199 +17,112 @@
   let showBadge = $state(false);
   let earnedBadge = $state<Badge | null>(null);
 
-  let showScenario = $state(false);
+  let showFlow = $state(false);
+  let showQuiz = $state(false);
+  let flowDone = $state(false);
 
   courseStore.startModule(MODULE_ID);
 
-  function handleScenarioComplete(score: number, maxScore: number) {
-    courseStore.completeModule(MODULE_ID, score, maxScore);
-    // Badge requires 'excellent' or 'good' grade (>=10 of 15 points)
-    if (score >= 10) {
-      const badge = courseStore.unlockBadge('agent-whisperer');
-      if (badge) {
-        earnedBadge = badge;
-        showBadge = true;
-      }
+  function handleFlowComplete(score: number, total: number) {
+    flowDone = true;
+  }
+
+  function handleQuizComplete(score: number, total: number) {
+    courseStore.completeModule(MODULE_ID, score, total);
+    const badge = courseStore.unlockBadge('context-engineer');
+    if (badge) {
+      earnedBadge = badge;
+      showBadge = true;
     }
     completed = true;
   }
 
-  // BranchingScenario: "Configura tu Agente para un Proyecto Real"
-  const scenarioNodes: Record<string, { id: string; narrative: string; choices?: { text: string; nextId: string; points: number; feedback?: string }[]; outcome?: { title: string; description: string; score: number; maxScore: number; grade: 'excellent' | 'good' | 'needs-work' | 'critical'; lessons: string[] } }> = {
-    start: {
-      id: 'start',
-      narrative: 'Escenario: Acabas de unirte a un equipo que esta construyendo una API en FastAPI. El proyecto tiene 50+ endpoints, usa PostgreSQL, tiene tests con pytest, y CI/CD con GitHub Actions.\n\nTu primera tarea es configurar un agente de codigo para que te ayude a trabajar en el proyecto de manera efectiva.\n\nEmpecemos por lo basico: como configuras las instrucciones del agente para que entienda las convenciones del proyecto?',
-      choices: [
-        { text: 'Escribo un CLAUDE.md detallado con las reglas del proyecto: stack tecnologico, convenciones de codigo, patrones arquitectonicos, y restricciones especificas', nextId: 'n2-good', points: 3, feedback: 'Excelente. Un rules file detallado es la base de todo. El agente necesita CONTEXTO para tomar buenas decisiones.' },
-        { text: 'No configuro nada especial. Los modelos modernos son lo suficientemente inteligentes para entender el proyecto solos', nextId: 'n2-bad', points: 0, feedback: 'Error critico. Sin instrucciones, el agente adivinara convenciones, usara patrones incorrectos, y generara codigo inconsistente con el resto del proyecto.' },
-        { text: 'Pongo un comentario al inicio de cada archivo con instrucciones para la IA', nextId: 'n2-ok', points: 1, feedback: 'Funciona parcialmente, pero es fragil y no escalable. Los rules files centralizan las instrucciones en un solo lugar.' },
-      ]
+  // ─── InteractiveFlow: Context Management Pipeline ───
+  const flowNodes = [
+    { id: 'claudemd', label: 'CLAUDE.md Layers', description: 'El punto de partida: la jerarquia de 6 capas de CLAUDE.md. Capa 1: Managed Policy (Anthropic, siempre activa). Capa 2: User Global (~/.claude/CLAUDE.md). Capa 3: Project Root. Capa 4: Project Local (.claude/CLAUDE.md). Capa 5: Path Rules (.claude/rules/*.md, se activan al tocar archivos que matchean). Capa 6: Auto Memory (generada dinamicamente). El target es mantener el CLAUDE.md bajo 2.5K tokens para no saturar el contexto desde el inicio.', icon: '\u{1F4C4}', x: 8, y: 30 },
+    { id: 'jit', label: 'Just-In-Time Loading', description: 'No cargues todo el contexto al inicio. Proporciona identificadores ligeros (paths, nombres) y deja que el agente cargue detalles SOLO cuando los necesita. Ejemplo: en vez de pegar toda la API docs en el prompt, escribe "API docs estan en /docs/api/ \u2014 leelos cuando necesites". Esto reduce el consumo inicial de tokens y mantiene el contexto limpio para el trabajo real.', icon: '\u{1F4E6}', x: 25, y: 55 },
+    { id: 'working', label: 'Agent Working Memory', description: 'El espacio donde el agente trabaja activamente: historial de mensajes, resultados de herramientas, y razonamiento intermedio. La regla del 60%: nunca pre-cargues mas del 60% de la ventana de contexto. Deja el 40% restante para que el agente piense, use herramientas y genere respuestas. Si excedes el 60%, la performance se degrada por context rot.', icon: '\u{1F9E0}', x: 42, y: 25 },
+    { id: 'compaction', label: 'Compaction (/compact)', description: 'Cuando el contexto crece demasiado, /compact resume la conversacion preservando decisiones y contexto critico pero descartando detalles intermedios. Usalo entre milestones: despues de completar una feature, antes de empezar la siguiente. Anthropic encontro que memory + context editing mejoro la performance en 39% en tareas de larga duracion.', icon: '\u{1F5DC}', x: 60, y: 55 },
+    { id: 'subagent', label: 'Sub-Agent Delegation', description: 'Para tareas de investigacion o exploracion, lanza sub-agentes con contextos limpios. Cada sub-agente recibe solo la informacion necesaria para su tarea especifica, trabaja en aislamiento, y retorna un resumen de 1-2K tokens. El agente principal se mantiene limpio y enfocado. Patron: main agent coordina, sub-agents investigan.', icon: '\u{1F916}', x: 78, y: 25 },
+    { id: 'clear', label: '/clear entre Fases', description: 'El arma secreta contra context rot. Usar /clear entre tareas independientes ahorra 50-70% de tokens y previene que el contexto acumulado degrade la performance. Divide trabajo complejo en fases: Research \u2192 Plan \u2192 Implement \u2192 Validate, usando /clear entre cada una. Simple pero con impacto masivo en calidad y costo.', icon: '\u{1F9F9}', x: 92, y: 55 },
+  ];
+
+  const flowEdges = [
+    { from: 'claudemd', to: 'jit', label: 'Contexto base' },
+    { from: 'jit', to: 'working', label: 'Carga selectiva' },
+    { from: 'working', to: 'compaction', label: 'Contexto lleno' },
+    { from: 'compaction', to: 'working', label: 'Resumido' },
+    { from: 'working', to: 'subagent', label: 'Tarea compleja' },
+    { from: 'subagent', to: 'working', label: 'Resumen 1-2K' },
+    { from: 'working', to: 'clear', label: 'Fase completa' },
+    { from: 'clear', to: 'claudemd', label: 'Nueva fase' },
+  ];
+
+  const flowChallenges = [
+    { question: 'El contexto del agente esta al 75% despues de investigar 20 archivos. Que nodo aplicas para liberar espacio sin perder decisiones?', targetNodeId: 'compaction', hint: 'Resume la conversacion preservando lo critico y descartando detalles intermedios.' },
+    { question: 'Necesitas investigar 3 microservicios antes de disenar una integracion. Que nodo evita contaminar el contexto principal?', targetNodeId: 'subagent', hint: 'Cada uno trabaja en aislamiento y retorna un resumen corto.' },
+    { question: 'Terminaste de implementar una feature y vas a empezar a escribir tests. Que nodo aplicas entre las dos tareas?', targetNodeId: 'clear', hint: 'Ahorra 50-70% de tokens y previene context rot entre tareas independientes.' },
+    { question: 'Tu CLAUDE.md tiene 5K tokens con toda la documentacion del API. Que nodo aplicas para reducir la carga inicial?', targetNodeId: 'jit', hint: 'No cargues todo al inicio. Proporciona paths y deja que el agente cargue bajo demanda.' },
+  ];
+
+  // ─── Quiz ───
+  const quizQuestions = [
+    {
+      question: 'Cual es la diferencia FUNDAMENTAL entre prompt engineering y context engineering?',
+      options: [
+        { text: 'Son sinonimos, solo cambia el nombre segun la empresa', correct: false, explanation: 'No son sinonimos. Prompt engineering se enfoca en un solo mensaje. Context engineering abarca TODO el entorno informacional del agente.' },
+        { text: 'Prompt engineering = disenar un mensaje. Context engineering = disenar TODO el entorno informacional: system prompt, archivos cargados, tool results, memoria, metadata', correct: true, explanation: 'Exacto. Context engineering es una disciplina mas amplia que INCLUYE prompt engineering. Segun Anthropic, el contexto que recibe el agente determina el 80% de la calidad de sus respuestas. No es solo "escribe un buen prompt", es "disena todo lo que el agente ve".' },
+        { text: 'Prompt engineering es para chatbots, context engineering es para agentes', correct: false, explanation: 'Prompt engineering se aplica a ambos. La diferencia no es el tipo de sistema sino el ALCANCE: prompt es un mensaje, context es todo el entorno.' },
+        { text: 'Context engineering es solo organizar archivos en el proyecto', correct: false, explanation: 'Va mucho mas alla. Incluye la jerarquia de CLAUDE.md, estrategias just-in-time, compaction, sub-agents, la regla del 60%, y como se gestiona el ciclo de vida completo del contexto.' },
+      ],
+      source: 'Anthropic - Effective Context Engineering for AI Agents',
+      sourceUrl: 'https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents'
     },
-    'n2-good': {
-      id: 'n2-good',
-      narrative: 'Perfecto. Escribiste un CLAUDE.md con esta estructura:\n- Stack: FastAPI + SQLAlchemy 2.0 + Pydantic v2\n- Convenciones: snake_case, type hints obligatorios, docstrings Google style\n- Arquitectura: Repository pattern, DTOs con Pydantic\n- Testing: pytest con fixtures, mocks para DB\n- Restricciones: No usar ORM legacy, no queries raw sin justificacion\n\nAhora el agente entiende el contexto. El equipo menciona que necesitan conectar el agente a la base de datos de documentacion interna y al sistema de issues de Jira. Como lo haces?',
-      choices: [
-        { text: 'Configuro servidores MCP: uno para la documentacion interna y otro para Jira. Asi el agente puede consultar docs y crear issues directamente', nextId: 'n3-good', points: 3, feedback: 'Perfecto. MCP es exactamente para esto: conectar el agente a fuentes de datos y herramientas externas con un protocolo estandar.' },
-        { text: 'Copio toda la documentacion en el repositorio para que el agente la lea directamente', nextId: 'n3-ok', points: 1, feedback: 'Funciona pero es ineficiente. Duplicas datos, la copia se desactualiza rapidamente, y llenas el contexto del agente con informacion que puede no necesitar.' },
-        { text: 'Le digo al agente que busque en Google cuando necesite informacion', nextId: 'n3-bad', points: 0, feedback: 'Google no tiene tu documentacion INTERNA. El agente necesita acceso directo a tus fuentes de datos privadas, no a la web publica.' },
-      ]
+    {
+      question: 'En la jerarquia de 6 capas de CLAUDE.md, cual capa se activa SOLO cuando el agente toca archivos que coinciden con un patron especifico?',
+      options: [
+        { text: 'Capa 2: User Global (~/.claude/CLAUDE.md)', correct: false, explanation: 'La capa User Global se carga siempre al inicio de sesion, para TODOS los proyectos. No depende de que archivos toque el agente.' },
+        { text: 'Capa 4: Project Local (PROJECT/.claude/CLAUDE.md)', correct: false, explanation: 'La capa Project Local se carga al inicio de sesion junto con la Project Root. No es condicional a archivos tocados.' },
+        { text: 'Capa 5: Path Rules (.claude/rules/*.md)', correct: true, explanation: 'Correcto! Las Path Rules usan globs en el frontmatter (ej: globs: "src/api/**/*.py") y se inyectan en el contexto SOLO cuando el agente toca archivos que matchean ese patron. Esto permite tener reglas especificas por area del proyecto sin cargarlas todas siempre.' },
+        { text: 'Capa 6: Auto Memory', correct: false, explanation: 'La Auto Memory se genera dinamicamente por el agente, no depende de patrones de archivos. Es memoria que el agente escribe durante su trabajo.' },
+      ],
+      source: 'Claude Code - Memory',
+      sourceUrl: 'https://code.claude.com/docs/en/memory'
     },
-    'n2-bad': {
-      id: 'n2-bad',
-      narrative: 'Sin configuracion, el agente empezo a generar codigo con patrones inconsistentes. Uso SQLAlchemy 1.x style en un proyecto que usa 2.0, genero endpoints sin type hints, y nombro variables en camelCase cuando el proyecto usa snake_case.\n\nEl tech lead te dice que corrijas esto. Como procedes ahora?',
-      choices: [
-        { text: 'Ahora si creo un CLAUDE.md detallado con todas las convenciones y reglas del proyecto', nextId: 'n3-recover', points: 2, feedback: 'Bien, nunca es tarde para configurar correctamente. Pero ya generaste codigo inconsistente que alguien tendra que arreglar.' },
-        { text: 'Corrijo el codigo manualmente y le digo al agente "sigue este estilo" en cada prompt', nextId: 'n3-bad2', points: 0, feedback: 'Repetir instrucciones en cada prompt es insostenible. Te vas a cansar en el segundo dia y el agente las va a "olvidar" entre sesiones.' },
-      ]
+    {
+      question: 'Tu agente lleva 2 horas trabajando en una feature. Notas que empieza a repetir instrucciones que ya dio, olvida decisiones tomadas hace 30 minutos, y genera codigo inconsistente con lo que hizo antes. Que esta pasando y cual es la MEJOR solucion?',
+      options: [
+        { text: 'El modelo es malo. Cambia a un modelo mas grande.', correct: false, explanation: 'No es el modelo, es el CONTEXTO. Incluso Claude Opus 4.6 sufre context rot cuando la ventana se satura. Un modelo mas grande no resuelve el problema fundamental.' },
+        { text: 'Context rot: la ventana esta saturada. Usa /compact para resumir la conversacion preservando decisiones criticas, y continua con un contexto mas limpio.', correct: true, explanation: 'Exacto! Context rot es el fenomeno donde la performance se degrada al crecer el contexto. Anthropic encontro que memory + context editing mejora la performance un 39% en tareas largas. /compact resume lo esencial y descarta los detalles intermedios que ya no necesitas.' },
+        { text: 'Usa /clear para borrar todo y empezar de cero', correct: false, explanation: '/clear borra TODO, incluyendo las decisiones tomadas. Es util entre tareas independientes, pero en medio de una feature perderas todo el contexto de trabajo. /compact es mejor aqui porque preserva lo critico.' },
+        { text: 'Ignora el problema y sigue trabajando. El agente se autocorrige.', correct: false, explanation: 'Context rot NO se autocorrige. Solo empeora a medida que creces el contexto. Sin intervencion activa, la calidad seguira degradandose.' },
+      ],
+      source: 'Anthropic - Effective Harnesses for Long-Running Agents',
+      sourceUrl: 'https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents'
     },
-    'n2-ok': {
-      id: 'n2-ok',
-      narrative: 'Los comentarios en archivos individuales funcionan a medias. El agente lee el archivo actual y sigue las instrucciones, pero cuando trabaja con multiples archivos, las instrucciones se pierden.\n\nEl equipo menciona que necesitan conectar el agente a la documentacion interna. Como lo haces?',
-      choices: [
-        { text: 'Configuro un servidor MCP para la documentacion interna', nextId: 'n3-good', points: 3, feedback: 'Buena eleccion. MCP es el protocolo estandar para esto.' },
-        { text: 'Copio los docs al repo para que el agente los encuentre', nextId: 'n3-ok', points: 1, feedback: 'Funciona pero no escala. Los docs se desactualizan rapido.' },
-      ]
+    {
+      question: 'Tienes una ventana de contexto de 200K tokens. Tu CLAUDE.md ocupa 4K tokens, los archivos cargados ocupan 80K, y las tool results acumulan 50K. Cuanto contexto libre tiene el agente para trabajar?',
+      options: [
+        { text: '66K tokens libres, que es suficiente', correct: false, explanation: 'Matematicamente son 66K (200K - 4K - 80K - 50K = 66K), pero eso es solo 33% libre. La regla del 60% dice que no deberias pre-cargar mas del 60%, y ya estas al 67% ocupado. El agente va a tener problemas.' },
+        { text: 'Ya excediste la regla del 60%. Con 134K de 200K ocupados (67%), deberias reducir la carga. Aplica just-in-time loading para los archivos y /compact para las tool results.', correct: true, explanation: 'Correcto! La regla del 60% existe porque el agente necesita espacio para pensar, usar herramientas y generar respuestas. Al 67% ocupado, estas en zona de riesgo. Solucion: no cargues los 80K de archivos upfront, usa just-in-time para que el agente cargue solo lo que necesita.' },
+        { text: '66K tokens es un monton, no hay problema', correct: false, explanation: '66K absolutos parece mucho, pero el porcentaje es lo que importa. Al 67% ocupado, cada tool call que genere output te acerca al limite. Ademas, el LLM necesita espacio para su propio razonamiento (extended thinking, tool planning).' },
+        { text: 'Cambia a un modelo con ventana de 1M tokens', correct: false, explanation: 'Mas ventana no resuelve malos habitos de context management. Si cargas 67% de 200K, probablemente cargaras 67% de 1M. El problema es la ESTRATEGIA de carga, no el tamano de la ventana.' },
+      ],
+      source: 'Boris Cherny - 22 Tips for Claude Code',
+      sourceUrl: 'https://www.builder.io/blog/claude-code-tips'
     },
-    'n3-good': {
-      id: 'n3-good',
-      narrative: 'MCP configurado. El agente ahora puede consultar la documentacion interna y crear issues en Jira sin salir de la terminal.\n\nSiguiente reto: el agente propone refactorizar un modulo completo de autenticacion (12 archivos, 800 lineas). Dice que puede mejorar la seguridad y simplificar el codigo. Que haces?',
-      choices: [
-        { text: 'Le pido que haga cambios pequenos e incrementales: primero un archivo, revisamos, luego el siguiente. Plan-Act-Reflect en cada paso', nextId: 'n4-good', points: 3, feedback: 'Perfecto. Cambios incrementales = facil de revisar, facil de revertir, y cada paso se valida antes del siguiente. Este es el flujo Plan-Act-Reflect.' },
-        { text: 'Acepto la propuesta completa y dejo que refactorice todo de una vez. El agente sabe lo que hace', nextId: 'n4-bad', points: 0, feedback: 'PELIGROSO. 800 lineas de cambios de golpe en autenticacion es una receta para bugs de seguridad. Nunca dejes que un agente haga cambios masivos sin revision incremental.' },
-        { text: 'Rechazo la propuesta completa y hago el refactoring yo mismo', nextId: 'n4-ok', points: 1, feedback: 'Conservador pero ineficiente. El agente puede ayudar, solo necesitas dirigirlo con cambios pequenos y revision constante.' },
-      ]
+    {
+      question: 'Necesitas que tu agente investigue 5 microservicios, analice sus APIs, y luego disene una integracion entre ellos. Cual es la MEJOR estrategia de context management?',
+      options: [
+        { text: 'Carga toda la documentacion de los 5 microservicios en el contexto y disena la integracion en una sola sesion', correct: false, explanation: 'Cargar la documentacion de 5 microservicios va a saturar el contexto rapidamente. Es la receta perfecta para context rot.' },
+        { text: 'Investiga los 5 microservicios uno por uno, usando /clear entre cada uno', correct: false, explanation: '/clear entre cada investigacion pierde el contexto de los microservicios anteriores. Cuando llegues al diseno, no tendras la informacion de los primeros.' },
+        { text: 'Lanza 5 sub-agentes (uno por microservicio) que retornen resumenes de 1-2K tokens cada uno. Luego el agente principal disena la integracion con los 5 resumenes limpios.', correct: true, explanation: 'Exacto! Sub-agent delegation: cada sub-agente tiene un contexto limpio dedicado a un solo microservicio. Retorna un resumen conciso. El agente principal recibe 5-10K tokens de resumenes (en vez de 100K+ de documentacion cruda) y puede disenar la integracion con un contexto limpio y enfocado.' },
+        { text: 'Pide al usuario que haga un resumen manual de cada microservicio', correct: false, explanation: 'Funciona pero desaprovechas la capacidad del agente. Los sub-agentes automatizan exactamente esta tarea de investigacion y resumen.' },
+      ],
+      source: 'Claude Code - Best Practices',
+      sourceUrl: 'https://code.claude.com/docs/en/best-practices'
     },
-    'n3-ok': {
-      id: 'n3-ok',
-      narrative: 'Copiaste la documentacion al repo. Funciona por ahora, aunque sabes que se desactualizara.\n\nSiguiente reto: el agente propone un refactoring grande del modulo de autenticacion. Que haces?',
-      choices: [
-        { text: 'Cambios incrementales: un archivo a la vez, revision en cada paso', nextId: 'n4-good', points: 3, feedback: 'Excelente decision. Plan-Act-Reflect en cada paso.' },
-        { text: 'Dejo que haga todo el refactoring de una vez', nextId: 'n4-bad', points: 0, feedback: 'Muy riesgoso sin revision incremental.' },
-      ]
-    },
-    'n3-bad': {
-      id: 'n3-bad',
-      narrative: 'El agente busco en Google y encontro documentacion publica que NO es la de tu proyecto. Genero codigo basado en versiones viejas de tu API interna.\n\nEl agente ahora propone un refactoring del modulo de autenticacion. Que haces?',
-      choices: [
-        { text: 'Primero configuro bien el acceso a la documentacion, luego procedo con cambios pequenos', nextId: 'n4-good', points: 3, feedback: 'Aprendiste la leccion. Primero contexto correcto, luego cambios incrementales.' },
-        { text: 'Le digo que haga el refactoring completo, ya veremos', nextId: 'n4-bad', points: 0, feedback: 'Sin contexto correcto Y sin revision incremental. Doble riesgo.' },
-      ]
-    },
-    'n3-recover': {
-      id: 'n3-recover',
-      narrative: 'Bien, creaste el CLAUDE.md. Ahora el agente genera codigo consistente.\n\nEl agente propone refactorizar el modulo de autenticacion completo (12 archivos). Que haces?',
-      choices: [
-        { text: 'Cambios incrementales con revision en cada paso', nextId: 'n4-good', points: 3, feedback: 'Excelente. Aprendiste del error anterior.' },
-        { text: 'Dejo que haga todo junto, ahora tiene buenas instrucciones', nextId: 'n4-bad', points: 0, feedback: 'Buenas instrucciones no eliminan la necesidad de revision. Un refactoring de autenticacion necesita supervision humana.' },
-      ]
-    },
-    'n3-bad2': {
-      id: 'n3-bad2',
-      narrative: 'Repetir instrucciones en cada prompt se volvio insostenible rapidamente.\n\nEl agente ahora propone un refactoring grande. Que haces?',
-      choices: [
-        { text: 'Primero creo un rules file, luego procedo con cambios pequenos', nextId: 'n4-good', points: 2, feedback: 'Tarde pero correcto. Rules file + cambios incrementales.' },
-        { text: 'Le dejo hacer el refactoring, a ver que sale', nextId: 'n4-bad', points: 0, feedback: 'Sin reglas claras y sin revision incremental. El peor escenario posible.' },
-      ]
-    },
-    'n4-good': {
-      id: 'n4-good',
-      narrative: 'Perfecto enfoque incremental. El agente refactorizo el primer archivo de autenticacion, lo revisaste, encontraste un issue menor con el manejo de tokens JWT, y lo corregiste antes de continuar.\n\nEl codigo generado por el agente pasa todos los tests existentes. Pero notas que NO escribio tests nuevos para las funciones que agrego. Que haces?',
-      choices: [
-        { text: 'Le pido que escriba tests primero antes de continuar con mas cambios. TDD: primero el test, luego la implementacion', nextId: 'outcome-excellent', points: 3, feedback: 'Fantastico. Tests ANTES de seguir = calidad garantizada. El agente debe generar tests como parte integral del trabajo, no como paso opcional.' },
-        { text: 'Yo mismo escribo los tests para las funciones nuevas', nextId: 'outcome-good', points: 2, feedback: 'Los tests se escriben, que es lo importante. Pero desaprovechas la capacidad del agente de generar tests. Mejor pedirle que los escriba y tu los revisas.' },
-        { text: 'Los tests existentes pasan, es suficiente. El refactoring no rompio nada', nextId: 'outcome-needs-work', points: 0, feedback: 'Tests existentes solo cubren el codigo viejo. Las funciones NUEVAS no tienen cobertura. Si algo falla en produccion, no hay tests que lo detecten.' },
-      ]
-    },
-    'n4-bad': {
-      id: 'n4-bad',
-      narrative: 'El agente hizo 800 lineas de cambios en 12 archivos de autenticacion de una sola vez. El diff es imposible de revisar. Los tests pasan, pero no sabes si el agente introdujo vulnerabilidades de seguridad.\n\nUn companero revisa el PR y encuentra que el agente elimino una validacion de tokens JWT critica. Que haces?',
-      choices: [
-        { text: 'Revierto TODO el refactoring y empiezo de nuevo con cambios incrementales', nextId: 'outcome-needs-work', points: 1, feedback: 'Correcto, pero perdiste horas de trabajo. La leccion: NUNCA aceptes cambios masivos sin revision incremental.' },
-        { text: 'Corrijo solo la validacion de JWT y apruebo el resto', nextId: 'outcome-critical', points: 0, feedback: 'Si el agente elimino UNA validacion critica, cuantas mas habraN pasado desapercibidas en 800 lineas? No puedes confiar en un diff que no revisaste.' },
-      ]
-    },
-    'n4-ok': {
-      id: 'n4-ok',
-      narrative: 'Hiciste el refactoring tu mismo. Funciona, pero tomo 3 dias en lugar de las 4 horas que habria tomado con el agente.\n\nEl codigo no tiene tests nuevos. Que haces?',
-      choices: [
-        { text: 'Le pido al agente que escriba los tests', nextId: 'outcome-good', points: 2, feedback: 'Buena idea. El agente es excelente para generar tests si le das el contexto correcto.' },
-        { text: 'No escribo tests, el codigo funciona', nextId: 'outcome-needs-work', points: 0, feedback: 'Codigo sin tests es una bomba de tiempo. Especialmente en autenticacion.' },
-      ]
-    },
-    // OUTCOMES
-    'outcome-excellent': {
-      id: 'outcome-excellent',
-      narrative: '',
-      outcome: {
-        title: 'Agent Whisperer Certificado',
-        description: 'Dominaste el flujo completo: rules files para contexto, MCP para herramientas, cambios incrementales con revision, y tests como primera clase. Asi es como un profesional trabaja con agentes.',
-        score: 15,
-        maxScore: 15,
-        grade: 'excellent',
-        lessons: [
-          'Los rules files (CLAUDE.md, .cursorrules) son la BASE de una buena interaccion con agentes',
-          'MCP conecta agentes a tus herramientas y datos privados de forma estandar',
-          'El flujo Plan-Act-Reflect mantiene el control: cambios pequenos, revision constante',
-          'Los tests son parte integral del codigo generado por IA, no un paso opcional',
-          'Tratar al agente como un junior talentoso que necesita direccion, no como un senior autonomo'
-        ]
-      }
-    },
-    'outcome-good': {
-      id: 'outcome-good',
-      narrative: '',
-      outcome: {
-        title: 'Buen Trabajo',
-        description: 'Entiendes los principios fundamentales de trabajar con agentes. Algunas decisiones podrian optimizarse, pero el enfoque general es correcto.',
-        score: 10,
-        maxScore: 15,
-        grade: 'good',
-        lessons: [
-          'Los rules files son fundamentales: configura ANTES de empezar a trabajar',
-          'MCP es la forma estandar de conectar agentes a herramientas externas',
-          'Los cambios incrementales siempre son preferibles a refactorings masivos',
-          'Delega la escritura de tests al agente en lugar de escribirlos tu mismo',
-          'El agente es una herramienta: tu decides la estrategia, el ejecuta'
-        ]
-      }
-    },
-    'outcome-needs-work': {
-      id: 'outcome-needs-work',
-      narrative: '',
-      outcome: {
-        title: 'Necesitas Practica',
-        description: 'Cometiste algunos errores comunes al trabajar con agentes. La buena noticia: estos errores son de los que mas se aprende. Revisa los conceptos del modulo.',
-        score: 5,
-        maxScore: 15,
-        grade: 'needs-work',
-        lessons: [
-          'NUNCA trabajes sin rules files: el agente necesita contexto del proyecto',
-          'Los refactorings masivos sin revision son peligrosos, especialmente en seguridad',
-          'Tests son obligatorios para codigo generado por IA: 45% tiene vulnerabilidades',
-          'MCP > copiar documentacion al repo: es mas limpio y se mantiene actualizado',
-          'Plan-Act-Reflect: planifica, deja al agente actuar, revisa criticamente'
-        ]
-      }
-    },
-    'outcome-critical': {
-      id: 'outcome-critical',
-      narrative: '',
-      outcome: {
-        title: 'Riesgo Critico',
-        description: 'Las decisiones tomadas podrian causar problemas serios en produccion. Aceptar codigo de IA sin revision adecuada es el error mas peligroso que puedes cometer. Vuelve a revisar el modulo.',
-        score: 1,
-        maxScore: 15,
-        grade: 'critical',
-        lessons: [
-          'NUNCA aceptes cambios masivos sin revision linea por linea',
-          'Si el agente elimino UNA validacion critica, asume que hay MAS errores ocultos',
-          'El 45% del codigo generado por IA tiene fallos de seguridad (GitHub Security Lab)',
-          'Tratar al agente como un junior: TODO lo que genera necesita code review',
-          'Sin tests, sin rules files, y sin revision = la tormenta perfecta de bugs'
-        ]
-      }
-    },
-  };
+  ];
 </script>
 
 <svelte:head>
@@ -245,762 +159,796 @@
     </ul>
   </div>
 
-  <!-- THEORY SECTION 1: System Prompts y Rules Files -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 1: Context Engineering vs Prompt Engineering -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">System Prompts y Rules Files</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Context Engineering vs Prompt Engineering</h2>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      El rules file es como el <strong class="text-agent-highlight">manual de empleado</strong> de tu agente. Le dice quien es, como debe comportarse, que convenciones seguir, y que esta prohibido. Sin rules file, el agente adivina. Y adivinar en software es <strong class="text-agent-text">la causa #1 de bugs</strong>.
+      Si los modulos anteriores te ensenaron <em>que es</em> un agente y <em>que herramientas</em> tiene, este modulo te ensena la habilidad que determina si ese agente produce resultados brillantes o mediocres: <strong class="text-agent-text">context engineering</strong>.
     </p>
 
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La mayoria de las personas piensan que trabajar con IA es cuestion de escribir buenos prompts. Y durante la era de los chatbots, tenian razon. Pero los agentes no son chatbots. Un agente no recibe un solo mensaje: recibe un <strong class="text-agent-text">entorno informacional completo</strong> compuesto por multiples capas que incluyen system prompts, archivos del proyecto cargados en contexto, resultados de herramientas ejecutadas, historial de conversacion, metadata del sistema, y memoria persistente.
+    </p>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-6">
       <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">Sin rules files, el agente usa sus valores por defecto. TU proyecto no es un proyecto por defecto. Cada equipo tiene convenciones, patrones arquitectonicos y restricciones unicas. El rules file es lo que transforma un agente generico en un agente que ENTIENDE tu codebase.</p>
+      <p class="text-sm text-agent-muted"><strong class="text-agent-text">Prompt engineering</strong> = disenar UN mensaje efectivo. <strong class="text-agent-text">Context engineering</strong> = disenar TODO el entorno informacional que el agente recibe: system prompt, archivos cargados, tool results, memoria, y metadata. Es como la diferencia entre escribir una linea de codigo vs disenar la arquitectura completa del sistema.</p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <div class="card border-t-4 border-t-purple-500 bg-agent-dark">
-        <h3 class="text-agent-text font-bold mb-1">CLAUDE.md</h3>
-        <p class="text-xs text-agent-accent mb-2">Claude Code</p>
-        <p class="text-sm text-agent-muted">Archivo Markdown en la raiz del proyecto. Claude Code lo lee automaticamente al iniciar. Soporta instrucciones detalladas, listas de convenciones, y reglas de arquitectura. Tambien soporta un archivo global en <code class="text-agent-accent">~/.claude/CLAUDE.md</code> para instrucciones que aplican a TODOS tus proyectos.</p>
-      </div>
-      <div class="card border-t-4 border-t-blue-500 bg-agent-dark">
-        <h3 class="text-agent-text font-bold mb-1">.cursorrules</h3>
-        <p class="text-xs text-agent-accent mb-2">Cursor</p>
-        <p class="text-sm text-agent-muted">Archivo de reglas especifico de Cursor. Define convenciones del proyecto que Cursor sigue al generar codigo. Cursor tambien soporta "Project Rules" desde su UI, que se guardan en <code class="text-agent-accent">.cursor/rules/</code>. Formato mas simple que CLAUDE.md pero igualmente efectivo.</p>
-      </div>
-      <div class="card border-t-4 border-t-orange-500 bg-agent-dark">
-        <h3 class="text-agent-text font-bold mb-1">.clinerules</h3>
-        <p class="text-xs text-agent-accent mb-2">Cline / Roo Code</p>
-        <p class="text-sm text-agent-muted">Reglas para la familia Cline/Roo. Los custom modes de Roo Code permiten reglas diferentes por modo (architect, code, debug). Puedes tener un set de reglas para cuando diseñas arquitectura y otro para cuando depuras.</p>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El estandar emergente: AGENTS.md</h3>
     <p class="text-agent-muted leading-relaxed mb-4">
-      La comunidad esta convergiendo hacia un archivo estandarizado llamado <strong class="text-agent-text">AGENTS.md</strong> que cualquier agente de codigo pueda leer, sin importar si es Claude Code, Cursor, Cline o cualquier otro. La idea es simple: asi como <code class="text-agent-accent">.editorconfig</code> estandarizo la configuracion de editores, AGENTS.md busca estandarizar las instrucciones para agentes IA.
-    </p>
-
-    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-6">
-      <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">El concepto de AGENTS.md fue propuesto por la comunidad open-source como solucion al "vendor lock-in" de rules files. En lugar de tener .cursorrules, CLAUDE.md y .clinerules por separado, un solo archivo AGENTS.md serviria para todos. Aun esta evolucionando, pero varios proyectos ya lo estan adoptando.</p>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Estructura de un buen CLAUDE.md</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Un buen rules file no es solo una lista de tecnologias. Es un documento estructurado que cubre identidad, convenciones, restricciones, y ejemplos. Piensalo como el onboarding document que le darias a un nuevo desarrollador en su primer dia.
-    </p>
-
-    {@html `<pre class="code-block text-xs mb-4"># Proyecto: API de Gestion de Usuarios
-
-## Stack Tecnologico
-- FastAPI 0.115+
-- SQLAlchemy 2.0 (async)
-- Pydantic v2 para DTOs
-- PostgreSQL 16
-- pytest + pytest-asyncio para tests
-
-## Convenciones de Codigo
-- snake_case para variables y funciones
-- PascalCase para clases
-- Type hints OBLIGATORIOS en todas las funciones
-- Docstrings Google style
-- Imports ordenados: stdlib, third-party, local (isort compatible)
-- Lineas max 100 caracteres
-
-## Arquitectura
-- Repository Pattern para acceso a datos
-- DTOs con Pydantic (nunca devolver modelos ORM directo)
-- Inyeccion de dependencias con Depends()
-- Cada endpoint tiene su propio schema de request/response
-- Services layer entre routers y repositories
-- No poner logica de negocio en los routers
-
-## Estructura de Carpetas
-- src/routers/       → Endpoints de la API
-- src/services/      → Logica de negocio
-- src/repositories/  → Acceso a datos
-- src/schemas/       → Pydantic models (request/response)
-- src/models/        → SQLAlchemy models
-- tests/             → Misma estructura que src/
-
-## Reglas Estrictas
-- NUNCA usar queries SQL raw sin justificacion
-- NUNCA commitear .env o credenciales
-- Todo endpoint debe tener tests
-- Manejo de errores con HTTPException tipados
-- No imports circulares entre modulos
-- No usar "from module import *"
-
-## Testing
-- Fixtures para DB con scope="session"
-- Mocks para servicios externos
-- Minimo 80% cobertura en logica de negocio
-- Cada test debe ser independiente (no depender del orden)
-
-## Ejemplos
-- Endpoint correcto: ver src/routers/users.py como referencia
-- Schema correcto: ver src/schemas/user.py
-- Test correcto: ver tests/routers/test_users.py</pre>`}
-
-    <h3 class="text-lg font-bold text-agent-text mb-3 mt-6">Antes vs Despues: El impacto del rules file</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Mira la diferencia dramatica entre un agente SIN reglas y uno CON reglas cuando se le pide "crea un endpoint para obtener un usuario por ID":
+      Segun datos internos de Anthropic, el <strong class="text-agent-text">contexto que recibe el agente determina hasta el 80% de la calidad de sus respuestas</strong>. No importa cuan sofisticado sea el modelo si le das contexto pobre, desorganizado o excesivo. Un Claude Opus 4.6 con mal contexto produce peores resultados que un Haiku con contexto impecable.
     </p>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4">
-        <p class="text-agent-danger font-bold text-sm mb-2">SIN rules file</p>
-        {@html `<pre class="code-block text-xs text-agent-muted">@app.get("/user/{id}")
-def get_user(id):
-    user = db.query("SELECT * FROM users WHERE id = " + str(id))
-    return user</pre>`}
-        <ul class="space-y-1 text-xs text-agent-danger mt-3">
-          <li>* SQL injection vulnerable</li>
-          <li>* Sin type hints</li>
-          <li>* Devuelve modelo ORM directo</li>
-          <li>* Sin manejo de errores</li>
-          <li>* Sin validacion de parametros</li>
+      <div class="card border-l-4 border-l-agent-muted bg-agent-dark">
+        <h3 class="text-agent-muted font-bold mb-2">Prompt Engineering</h3>
+        <ul class="text-sm text-agent-muted space-y-1">
+          <li>&#x2022; Un mensaje, una respuesta</li>
+          <li>&#x2022; Foco en la redaccion del prompt</li>
+          <li>&#x2022; Contexto estatico (no cambia)</li>
+          <li>&#x2022; Ideal para chatbots</li>
+          <li>&#x2022; Medido en calidad de la respuesta</li>
         </ul>
       </div>
-      <div class="bg-agent-success/10 border border-agent-success/30 rounded-lg p-4">
-        <p class="text-agent-success font-bold text-sm mb-2">CON rules file</p>
-        {@html `<pre class="code-block text-xs text-agent-muted">@router.get("/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: int,
-    service: UserService = Depends(get_user_service),
-) -> UserResponse:
-    """Obtiene un usuario por ID."""
-    user = await service.get_by_id(user_id)
-    if not user:
-        raise HTTPException(status_code=404)
-    return UserResponse.model_validate(user)</pre>`}
-        <ul class="space-y-1 text-xs text-agent-success mt-3">
-          <li>* Type hints en todo</li>
-          <li>* Inyeccion de dependencias</li>
-          <li>* DTO con Pydantic (no ORM directo)</li>
-          <li>* Manejo de 404</li>
-          <li>* Async correctamente</li>
+      <div class="card border-l-4 border-l-agent-accent bg-agent-dark">
+        <h3 class="text-agent-accent font-bold mb-2">Context Engineering</h3>
+        <ul class="text-sm text-agent-muted space-y-1">
+          <li>&#x2022; Multiples capas, sesiones largas</li>
+          <li>&#x2022; Foco en TODO el entorno informacional</li>
+          <li>&#x2022; Contexto dinamico (crece, se compacta, rota)</li>
+          <li>&#x2022; Esencial para agentes</li>
+          <li>&#x2022; Medido en calidad sostenida durante horas</li>
         </ul>
       </div>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Tips para escribir instrucciones efectivas</h3>
-    <div class="space-y-3 mb-6">
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0">1</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Se especifico, no generico</h4>
-          <p class="text-sm text-agent-muted">Mal: "Escribe buen codigo". Bien: "Usa type hints en todas las funciones. Usa Pydantic v2 para validacion. No uses Any como tipo."</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0">2</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Incluye ejemplos concretos</h4>
-          <p class="text-sm text-agent-muted">Los agentes aprenden mejor de ejemplos que de reglas abstractas. Incluye "ver archivo X como referencia" para que el agente tenga un modelo a seguir.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0">3</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Define limites y prohibiciones</h4>
-          <p class="text-sm text-agent-muted">Las reglas negativas son tan importantes como las positivas: "NUNCA modificar archivos de migracion existentes", "NUNCA usar print() para logging".</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0">4</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Estructura del proyecto explicita</h4>
-          <p class="text-sm text-agent-muted">Incluye donde van los archivos nuevos. Sin esto, el agente puede crear un endpoint directamente en main.py en lugar de en el router correspondiente.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0">5</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Mantelo actualizado</h4>
-          <p class="text-sm text-agent-muted">Un rules file desactualizado es peor que no tener uno. Si migras de SQLAlchemy 1.x a 2.0 pero no actualizas el rules file, el agente generara codigo legacy.</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="bg-agent-dark border border-agent-accent/30 rounded-lg p-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Tip pro:</p>
-      <p class="text-sm text-agent-muted">Versiona tu rules file con Git. Asi todo el equipo comparte las mismas instrucciones para el agente. Cuando cambian las convenciones, el rules file se actualiza en el mismo PR. Algunos equipos incluso incluyen una seccion "Changelog" dentro del rules file para trackear cambios importantes.</p>
-    </div>
-  </section>
-
-  <!-- THEORY SECTION 2: MCP -->
-  <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">MCP: Model Context Protocol</h2>
     <p class="text-agent-muted leading-relaxed mb-4">
-      MCP es un <strong class="text-agent-highlight">protocolo abierto</strong> creado por Anthropic que estandariza como los agentes se conectan a fuentes de datos y herramientas externas. Piensalo como un <strong class="text-agent-text">USB universal para agentes IA</strong>: en vez de integrar cada herramienta de forma custom, usas un protocolo estandar.
+      Piensa en la analogia de un cirujano. Prompt engineering es elegir el bisturi correcto. Context engineering es preparar todo el quirofano: iluminacion, instrumental ordenado, equipo de apoyo, monitores del paciente, y protocolo de emergencia. El bisturi importa, pero sin el quirofano preparado, la operacion falla.
     </p>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">El Problema N x M</h3>
+    <h3 class="text-lg font-bold text-agent-text mb-3">La evolucion de la disciplina</h3>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      Antes de MCP, cada combinacion de agente + herramienta necesitaba una integracion custom. Si tienes <strong class="text-agent-text">N modelos</strong> (Claude, GPT, Gemini...) y <strong class="text-agent-text">M herramientas</strong> (GitHub, Jira, Postgres, Slack...), necesitabas <strong class="text-agent-highlight">N x M integraciones</strong>. Con 5 modelos y 10 herramientas = 50 integraciones diferentes. MCP reduce esto a <strong class="text-agent-accent">N + M</strong>: cada modelo implementa el cliente MCP UNA vez, cada herramienta implementa el servidor MCP UNA vez, y todas las combinaciones funcionan automaticamente. De 50 integraciones a 15.
+      El termino <strong class="text-agent-text">"context engineering"</strong> empezo a popularizarse a finales de 2025 cuando equipos como Anthropic, Google DeepMind, y OpenAI publicaron articulos sobre como la gestion del contexto tiene mas impacto que el tamano del modelo en tareas agenticas. La razon: los modelos ya son suficientemente buenos. El cuello de botella es la <em>informacion que reciben</em>, no su capacidad de procesarla.
     </p>
 
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-5 mb-6">
-      <h3 class="text-agent-accent font-bold mb-3">Arquitectura MCP</h3>
-      <div class="space-y-3">
-        <div class="flex items-center gap-3">
-          <span class="shrink-0 w-24 text-right text-sm font-bold text-agent-text">Host</span>
-          <span class="text-agent-accent">&#x2192;</span>
-          <span class="text-sm text-agent-muted">La aplicacion que aloja al agente (Claude Code, Cursor, tu app custom)</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="shrink-0 w-24 text-right text-sm font-bold text-agent-text">Client</span>
-          <span class="text-agent-accent">&#x2192;</span>
-          <span class="text-sm text-agent-muted">Vive dentro del host, se conecta 1:1 con un servidor MCP. Cada servidor tiene su propio client</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="shrink-0 w-24 text-right text-sm font-bold text-agent-text">Server</span>
-          <span class="text-agent-accent">&#x2192;</span>
-          <span class="text-sm text-agent-muted">Expone herramientas y datos via JSON-RPC 2.0. Ejemplo: un MCP server para PostgreSQL, otro para Jira, otro para Slack</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="shrink-0 w-24 text-right text-sm font-bold text-agent-text">Resources</span>
-          <span class="text-agent-accent">&#x2192;</span>
-          <span class="text-sm text-agent-muted">Datos que el servidor expone al agente (archivos, registros de DB, documentos). Lectura pasiva</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="shrink-0 w-24 text-right text-sm font-bold text-agent-text">Tools</span>
-          <span class="text-agent-accent">&#x2192;</span>
-          <span class="text-sm text-agent-muted">Acciones que el agente puede invocar via el servidor (crear issue, ejecutar query). Acciones activas</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="shrink-0 w-24 text-right text-sm font-bold text-agent-text">Prompts</span>
-          <span class="text-agent-accent">&#x2192;</span>
-          <span class="text-sm text-agent-muted">Templates pre-construidos que el servidor ofrece al host. El usuario puede seleccionarlos como atajos</span>
-        </div>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Como funciona el protocolo internamente</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      MCP usa <strong class="text-agent-text">JSON-RPC 2.0</strong> como protocolo de transporte. El cliente y el servidor se comunican con mensajes estructurados. Hay dos tipos de transporte: <strong class="text-agent-accent">stdio</strong> (para servidores locales que se ejecutan como procesos) y <strong class="text-agent-accent">HTTP con SSE</strong> (Server-Sent Events, para servidores remotos).
+    <p class="text-agent-muted leading-relaxed mb-4">
+      En 2023-2024, el enfoque estaba en <strong class="text-agent-text">prompt templates</strong>: "usa este template para pedir codigo", "usa este otro para reviews". Eran recetas estaticas para chatbots. En 2025-2026, el enfoque cambio a <strong class="text-agent-text">sistemas de contexto dinamicos</strong>: como cargo informacion on-demand, como gestiono memoria entre sesiones, como evito que el contexto degrade la performance. La diferencia es la misma que entre escribir scripts individuales y disenar arquitectura de software.
     </p>
 
-    {@html `<pre class="code-block text-xs mb-4">// Ejemplo simplificado de configuracion MCP en Claude Code
-// Archivo: .mcp.json en la raiz del proyecto
-{
-  "mcpServers": {
-    "postgres": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres",
-               "postgresql://localhost/mydb"]
-    },
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxx"
-      }
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem",
-               "/home/user/docs"]
-    }
-  }
-}</pre>`}
-
-    <h3 class="text-lg font-bold text-agent-text mb-3 mt-6">Servidores MCP populares</h3>
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Servidor</th>
-              <th class="text-left text-agent-text py-2 pr-4">Que hace</th>
-              <th class="text-left text-agent-text py-2">Caso de uso</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">Filesystem</td><td class="py-2 pr-4">Lee/escribe archivos fuera del proyecto</td><td class="py-2">Acceder a docs, configs externas</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">GitHub</td><td class="py-2 pr-4">Issues, PRs, repos, code search</td><td class="py-2">Automatizar workflow de Git</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">PostgreSQL</td><td class="py-2 pr-4">Queries, schemas, tablas</td><td class="py-2">Explorar y consultar la BD</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">Slack</td><td class="py-2 pr-4">Enviar/leer mensajes, canales</td><td class="py-2">Notificaciones, busqueda en chat</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4 text-agent-accent">Puppeteer</td><td class="py-2 pr-4">Navegacion web, screenshots</td><td class="py-2">Testing visual, scraping</td></tr>
-            <tr><td class="py-2 pr-4 text-agent-accent">Sentry</td><td class="py-2 pr-4">Errores, eventos, stack traces</td><td class="py-2">Debugging con context real</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
+      <p class="text-sm text-agent-muted">En el articulo <em>"Effective Context Engineering for AI Agents"</em>, Anthropic describe como sus propios ingenieros pasaron de escribir prompts individuales a disenar sistemas completos de context management para Claude Code. El resultado: agentes que mantienen calidad consistente durante sesiones de 4+ horas, en lugar de degradarse despues de 30 minutos. La clave no fue un modelo mejor, fue un contexto mejor gestionado.</p>
     </div>
 
     <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-accent font-bold mb-1">Sabias que?</p>
-      <p class="text-sm text-agent-muted">OpenAI anuncio soporte para MCP en su SDK de Agents en 2025, y Google lo integro en Gemini. El protocolo que empezo como una creacion de Anthropic se esta convirtiendo en el estandar de facto de la industria. Esto valida la apuesta: construir MCP servers hoy es una inversion a futuro.</p>
-    </div>
-
-    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Un equipo de backend configuro 3 MCP servers: GitHub (para crear issues y PRs automaticamente), PostgreSQL (para que el agente consultara schemas y datos de prueba), y su documentacion interna via Filesystem. El resultado: el agente podia recibir un bug report, consultar la DB para reproducirlo, encontrar el codigo relevante, y crear un PR con el fix. Lo que antes tomaba 45 minutos de contexto switching ahora lo hacia el agente en 5.</p>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Seguridad en MCP</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Darle a un agente acceso a tu base de datos o tu cuenta de GitHub suena arriesgado, y lo es si no tomas precauciones. Principios basicos de seguridad MCP:
-    </p>
-    <ul class="space-y-2 text-sm text-agent-muted mb-4">
-      <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">!</span> <strong class="text-agent-text">Minimo privilegio:</strong> Si el agente solo necesita LEER la DB, no le des permisos de escritura. Crea un usuario de DB con READ ONLY.</li>
-      <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">!</span> <strong class="text-agent-text">Tokens con scope limitado:</strong> Usa GitHub tokens con SOLO los permisos que el agente necesita (ej: solo acceso a repos, no a org settings).</li>
-      <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">!</span> <strong class="text-agent-text">Paths restringidos:</strong> El MCP de Filesystem permite limitar a que carpetas tiene acceso. No le des acceso a todo el sistema de archivos.</li>
-      <li class="flex items-start gap-2"><span class="text-agent-warning shrink-0">!</span> <strong class="text-agent-text">Aprobacion humana para acciones destructivas:</strong> Configura que operaciones como DELETE o DROP requieran confirmacion del usuario antes de ejecutarse.</li>
-    </ul>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <div class="card bg-agent-dark">
-        <h4 class="text-agent-success font-bold mb-2">Por que importa MCP</h4>
-        <ul class="space-y-1 text-sm text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-success">+</span> Un servidor MCP funciona con CUALQUIER cliente compatible</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">+</span> No necesitas integraciones custom por cada agente</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">+</span> La comunidad crea servidores para todo: GitHub, Postgres, S3, Notion...</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">+</span> Seguridad: los permisos se controlan en el servidor, no en el agente</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">+</span> Resuelve el problema N x M de integraciones</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">+</span> Protocolo abierto respaldado por la industria</li>
-        </ul>
-      </div>
-      <div class="card bg-agent-dark">
-        <h4 class="text-agent-warning font-bold mb-2">Limitaciones actuales</h4>
-        <ul class="space-y-1 text-sm text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-warning">!</span> Protocolo joven, aun evolucionando (especificacion cambiando)</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning">!</span> No todos los agentes soportan MCP todavia</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning">!</span> La calidad de servidores comunitarios varia mucho</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning">!</span> Debugging puede ser complejo si la cadena Host&#x2192;Client&#x2192;Server falla</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning">!</span> Configuracion inicial requiere conocimiento tecnico</li>
-          <li class="flex items-start gap-2"><span class="text-agent-warning">!</span> Overhead de latencia en cada llamada al servidor</li>
-        </ul>
-      </div>
+      <p class="text-sm text-agent-muted">Andrej Karpathy (ex-Tesla AI, ex-OpenAI) dijo en enero 2026: <em>"I would like to propose that we retire the term 'prompt engineering' and replace it with 'context engineering'"</em>. El argumento: los agentes modernos no reciben solo un prompt, reciben un contexto complejo que incluye herramientas, memoria, y multiples capas de instrucciones. Disenar ese contexto es ingenieria, no solo redaccion.</p>
     </div>
   </section>
 
-  <!-- THEORY SECTION 3: Plan-Act-Reflect -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 2: Context Rot -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">El Flujo Plan &#x2192; Act &#x2192; Reflect</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">El Problema del "Context Rot"</h2>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      Addy Osmani (referente en ingenieria de software en Google) popularizo este flujo para trabajar efectivamente con agentes de codigo. Es la antitesis de "dale una tarea y acepta lo que salga". En esencia: <strong class="text-agent-text">tu diriges, el agente ejecuta, y tu validas</strong>. Nunca al reves.
+      Context rot es el fenomeno mas insidioso al trabajar con agentes de larga duracion. A medida que la conversacion crece, el contexto se llena de resultados de herramientas, razonamiento intermedio, y detalles que ya no son relevantes. El agente literalmente <strong class="text-agent-text">pierde la capacidad de encontrar lo importante entre el ruido</strong>.
     </p>
 
-    <div class="space-y-6 mb-6">
-      <div class="flex items-start gap-4">
-        <div class="shrink-0 w-16 h-16 rounded-xl bg-agent-info/20 border border-agent-info/30 flex items-center justify-center">
-          <span class="text-2xl">&#x1F4CB;</span>
-        </div>
-        <div>
-          <h3 class="text-agent-info font-bold text-lg">PLAN</h3>
-          <p class="text-sm text-agent-muted mb-2">Antes de que el agente escriba una linea de codigo, define exactamente que quieres:</p>
-          <ul class="space-y-1 text-sm text-agent-muted">
-            <li>* Describe la tarea con especificaciones claras</li>
-            <li>* Pide al agente que PROPONGA un plan antes de ejecutar</li>
-            <li>* Revisa el plan y ajusta antes de dar luz verde</li>
-            <li>* Define que archivos puede tocar y cuales NO</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="flex items-start gap-4">
-        <div class="shrink-0 w-16 h-16 rounded-xl bg-agent-accent/20 border border-agent-accent/30 flex items-center justify-center">
-          <span class="text-2xl">&#x26A1;</span>
-        </div>
-        <div>
-          <h3 class="text-agent-accent font-bold text-lg">ACT</h3>
-          <p class="text-sm text-agent-muted mb-2">Deja al agente ejecutar, pero en pasos controlados:</p>
-          <ul class="space-y-1 text-sm text-agent-muted">
-            <li>* Cambios pequenos e incrementales (no mega-refactorings)</li>
-            <li>* Un archivo o componente a la vez</li>
-            <li>* Tests despues de cada cambio significativo</li>
-            <li>* Si algo no se ve bien, para INMEDIATAMENTE</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="flex items-start gap-4">
-        <div class="shrink-0 w-16 h-16 rounded-xl bg-agent-warning/20 border border-agent-warning/30 flex items-center justify-center">
-          <span class="text-2xl">&#x1F50D;</span>
-        </div>
-        <div>
-          <h3 class="text-agent-warning font-bold text-lg">REFLECT</h3>
-          <p class="text-sm text-agent-muted mb-2">Revisa criticamente CADA resultado antes de continuar:</p>
-          <ul class="space-y-1 text-sm text-agent-muted">
-            <li>* Lee el codigo generado linea por linea</li>
-            <li>* Verifica que siga las convenciones del proyecto</li>
-            <li>* Busca vulnerabilidades de seguridad</li>
-            <li>* Confirma que los tests cubren los casos edge</li>
-            <li>* Si algo no convence, pide al agente que lo rehaga con indicaciones especificas</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo completo del ciclo</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Imagina que necesitas agregar autenticacion con JWT a tu API. Asi se ve el flujo completo:
-    </p>
-
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-info uppercase tracking-wider font-bold mb-2">Fase PLAN</p>
-      {@html `<pre class="code-block text-xs text-agent-muted">Tu: "Necesito agregar autenticacion JWT a la API.
-Antes de escribir codigo, propone un plan con:
-- Que archivos vamos a crear/modificar
-- Que dependencias necesitamos
-- El flujo de autenticacion completo
-- NO toques los endpoints existentes todavia"
-
-Agente: "Plan propuesto:
-1. Instalar python-jose y passlib
-2. Crear src/auth/jwt_handler.py (crear/verificar tokens)
-3. Crear src/auth/dependencies.py (Depends para proteger rutas)
-4. Crear src/schemas/auth.py (LoginRequest, TokenResponse)
-5. Crear src/routers/auth.py (POST /login, POST /refresh)
-6. Agregar tests para cada componente
-Flujo: login -> verificar credenciales -> generar JWT
-       request -> extraer JWT del header -> validar -> permitir/denegar"
-
-Tu: "El plan se ve bien. Empieza por el paso 2 solamente."</pre>`}
-    </div>
-
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-accent uppercase tracking-wider font-bold mb-2">Fase ACT</p>
-      {@html `<pre class="code-block text-xs text-agent-muted">Tu: "OK, ejecuta solo el paso 2: crea jwt_handler.py"
-
-Agente: *crea el archivo con create_token() y verify_token()*
-
-Tu: "Ahora crea los tests para jwt_handler antes de continuar."
-
-Agente: *crea tests/auth/test_jwt_handler.py*</pre>`}
-    </div>
-
-    <div class="bg-agent-dark border border-agent-border rounded-lg p-4 mb-4">
-      <p class="text-xs text-agent-warning uppercase tracking-wider font-bold mb-2">Fase REFLECT</p>
-      {@html `<pre class="code-block text-xs text-agent-muted">Tu: "Corre los tests y muestrame el resultado."
-
-Agente: *5 tests passed*
-
-Tu: "Revisando el codigo... Veo que usas HS256 con una
-secret key hardcodeada. Cambiala a RS256 con keys desde
-variables de entorno. Tambien falta el campo 'exp' en el
-token para que expire."
-
-Agente: *corrige segun feedback*
-
-Tu: "Perfecto. Ahora continuemos con el paso 3."</pre>`}
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3 mt-6">El concepto de "chunk size"</h3>
     <p class="text-agent-muted leading-relaxed mb-4">
-      El tamaño de cada cambio que le pides al agente es critico. Los estudios de Anthropic y la experiencia de la comunidad convergen en lo mismo: <strong class="text-agent-text">cambios mas pequeños = mejor calidad</strong>. Un cambio ideal es uno que puedas revisar en menos de 5 minutos. Si el diff es tan grande que necesitas 30 minutos para revisarlo, el cambio fue demasiado grande.
+      Los sintomas son claros: el agente empieza a repetir instrucciones que ya dio, olvida decisiones tomadas hace 20 mensajes, genera codigo inconsistente con lo que hizo antes, y a veces contradice directamente sus propias conclusiones previas. No es que el modelo sea malo. Es que esta ahogandose en su propio contexto.
     </p>
 
-    <div class="bg-agent-card border border-agent-border rounded-lg p-4 mb-4">
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-agent-border">
-              <th class="text-left text-agent-text py-2 pr-4">Tamaño del cambio</th>
-              <th class="text-left text-agent-text py-2 pr-4">Calidad esperada</th>
-              <th class="text-left text-agent-text py-2">Facilidad de revision</th>
-            </tr>
-          </thead>
-          <tbody class="text-agent-muted">
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">1-30 lineas</td><td class="py-2 pr-4 text-agent-success">Alta: facil de verificar</td><td class="py-2 text-agent-success">2-5 minutos</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">30-100 lineas</td><td class="py-2 pr-4 text-agent-warning">Media: requiere atencion</td><td class="py-2 text-agent-warning">10-15 minutos</td></tr>
-            <tr class="border-b border-agent-border/50"><td class="py-2 pr-4">100-300 lineas</td><td class="py-2 pr-4 text-agent-danger">Baja: facil perder errores</td><td class="py-2 text-agent-danger">30+ minutos</td></tr>
-            <tr><td class="py-2 pr-4">300+ lineas</td><td class="py-2 pr-4 text-agent-danger">Muy baja: revision superficial</td><td class="py-2 text-agent-danger">Se aprueba con miedo</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-6">
       <p class="text-sm text-agent-danger font-bold mb-1">Error comun</p>
-      <p class="text-sm text-agent-muted">Dejar que el agente haga demasiado de una sola vez. "Implementa el sistema de autenticacion completo" parece eficiente, pero produce un diff de 500+ lineas que nadie va a revisar en detalle. Si hay un bug de seguridad en la linea 347, lo vas a pasar por alto. Mejor: "Implementa SOLO la funcion que genera el JWT token, con sus tests."</p>
+      <p class="text-sm text-agent-muted">Muchos desarrolladores asumen que "mas contexto = mejor". Es exactamente al reves. Anthropic encontro que agentes con <strong>context editing activo</strong> (compaction + nota-taking) <strong>mejoran su performance un 39%</strong> comparado con agentes que simplemente acumulan contexto sin gestionarlo. Menos ruido = mejor senal.</p>
     </div>
 
-    <div class="bg-agent-dark border border-agent-danger/30 rounded-lg p-4">
-      <p class="text-sm text-agent-danger font-bold mb-1">El anti-patron que DEBES evitar:</p>
-      <p class="text-sm text-agent-muted">"Le di la tarea al agente, acepto todo lo que genero sin revisar, y lo mande a produccion." Segun un estudio de GitHub Security Lab, <strong class="text-agent-text">el 45% del codigo generado por IA tiene vulnerabilidades de seguridad</strong>. Tratar al agente como un senior autonomo es un error critico.</p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El problema es matematico. Un modelo con ventana de 200K tokens procesa todo el contexto en cada llamada. Si tienes 150K tokens de historial acumulado, el modelo debe "leer" esos 150K tokens cada vez que genera una respuesta. Pero la atencion del transformer no es uniforme: la informacion al inicio y al final del contexto recibe mas atencion que la del medio (fenomeno conocido como <strong class="text-agent-text">"lost in the middle"</strong>). Tus instrucciones del CLAUDE.md estan al inicio, pero las decisiones criticas tomadas hace 30 minutos pueden estar enterradas en el medio.
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border border-agent-border rounded-lg overflow-hidden">
+        <thead class="bg-agent-card">
+          <tr>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Sintoma</th>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Causa</th>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Solucion</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3">Repite instrucciones ya dadas</td>
+            <td class="py-2 px-3">Instrucciones tempranas "lost in the middle"</td>
+            <td class="py-2 px-3 text-agent-accent">/compact para re-priorizar</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3">Olvida decisiones previas</td>
+            <td class="py-2 px-3">Demasiadas tool results diluyen las decisiones</td>
+            <td class="py-2 px-3 text-agent-accent">Note-taking: que el agente escriba sus propias notas</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3">Codigo inconsistente</td>
+            <td class="py-2 px-3">Contexto tan grande que no "ve" sus propios outputs previos</td>
+            <td class="py-2 px-3 text-agent-accent">/clear entre features + CLAUDE.md como ancla</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-3">Se contradice a si mismo</td>
+            <td class="py-2 px-3">Contexto saturado al 90%+</td>
+            <td class="py-2 px-3 text-agent-accent">Sub-agents con contextos limpios</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">La curva de degradacion</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La degradacion no es lineal, es exponencial. Los primeros 50% de la ventana de contexto funcionan casi perfecto. Del 50% al 70%, empiezas a notar inconsistencias menores. Del 70% al 85%, los errores se vuelven frecuentes. Por encima del 85%, el agente es practicamente inutilizable para tareas que requieren coherencia con su trabajo previo.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Esto no es una falla del modelo. Es una consecuencia de como funcionan los transformers: la atencion se distribuye entre TODOS los tokens del contexto. Mas tokens = menos atencion por token = mayor probabilidad de "perder" informacion critica. Es el equivalente computacional de tratar de escuchar 10 conversaciones simultaneas: puedes seguir 2-3, pero a partir de la 6ta pierdes el hilo.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Dato clave</p>
+      <p class="text-sm text-agent-muted">En el articulo <em>"Effective Harnesses for Long-Running Agents"</em>, Anthropic reporta que los agentes que implementan <strong>memory + context editing</strong> muestran una <strong>mejora del 39% en performance</strong> en tareas de larga duracion comparado con agentes que simplemente acumulan contexto. La gestion activa del contexto no es un lujo, es una necesidad para cualquier tarea que dure mas de 15-20 minutos.</p>
     </div>
   </section>
 
-  <!-- THEORY SECTION 4: Revisar Codigo de IA -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 3: CLAUDE.md Mastery -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">Revisar Codigo Generado por IA</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">CLAUDE.md Mastery: La Jerarquia de 6 Capas</h2>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      El codigo de un agente es como el trabajo de un <strong class="text-agent-highlight">junior muy talentoso pero sin experiencia en tu proyecto</strong>. Puede ser brillante en sintaxis y patrones, pero no conoce las reglas no escritas de tu codebase. Revisar el codigo de IA no es opcional, es tu <strong class="text-agent-text">responsabilidad profesional</strong>.
+      El archivo CLAUDE.md es el mecanismo principal de context engineering en Claude Code. Pero no es un solo archivo: es una <strong class="text-agent-text">jerarquia de 6 capas</strong> que se combinan para formar el contexto inicial del agente. Cada capa tiene un scope diferente y se carga en un momento diferente.
     </p>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Las estadisticas que asustan</h3>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4 text-center">
-        <p class="text-3xl font-bold text-agent-danger">45%</p>
-        <p class="text-sm text-agent-muted mt-1">del codigo generado por IA tiene fallos de seguridad</p>
-        <p class="text-xs text-agent-muted mt-1">(GitHub Security Lab)</p>
-      </div>
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4 text-center">
-        <p class="text-3xl font-bold text-agent-danger">1.75x</p>
-        <p class="text-sm text-agent-muted mt-1">mas errores logicos que codigo escrito por humanos</p>
-        <p class="text-xs text-agent-muted mt-1">(Cornell University)</p>
-      </div>
-      <div class="bg-agent-danger/10 border border-agent-danger/30 rounded-lg p-4 text-center">
-        <p class="text-3xl font-bold text-agent-danger">2.74x</p>
-        <p class="text-sm text-agent-muted mt-1">mas vulnerabilidades XSS en codigo generado</p>
-        <p class="text-xs text-agent-muted mt-1">(Security analysis studies)</p>
-      </div>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Entender esta jerarquia es critico porque te permite <strong class="text-agent-text">colocar la informacion correcta en la capa correcta</strong>. Las preferencias personales van en User Global. Las convenciones del proyecto van en Project Root. Las reglas especificas para el frontend van en Path Rules que solo se cargan cuando tocas archivos del frontend.
+    </p>
+
+    <!-- The 6-Layer Hierarchy Table -->
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border border-agent-border rounded-lg overflow-hidden">
+        <thead class="bg-agent-card">
+          <tr>
+            <th class="text-left py-3 px-3 text-agent-accent font-bold border-b border-agent-border w-12">Capa</th>
+            <th class="text-left py-3 px-3 text-agent-accent font-bold border-b border-agent-border">Archivo</th>
+            <th class="text-left py-3 px-3 text-agent-accent font-bold border-b border-agent-border">Scope</th>
+            <th class="text-left py-3 px-3 text-agent-accent font-bold border-b border-agent-border">Cuando se carga</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50 bg-agent-darker/50">
+            <td class="py-3 px-3 text-agent-text font-bold">1</td>
+            <td class="py-3 px-3"><code class="text-agent-accent text-xs">(Anthropic internal)</code></td>
+            <td class="py-3 px-3">Todos los usuarios</td>
+            <td class="py-3 px-3">Siempre (managed policy)</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-3 text-agent-text font-bold">2</td>
+            <td class="py-3 px-3"><code class="text-agent-accent text-xs">~/.claude/CLAUDE.md</code></td>
+            <td class="py-3 px-3">Todos tus proyectos</td>
+            <td class="py-3 px-3">Inicio de sesion</td>
+          </tr>
+          <tr class="border-b border-agent-border/50 bg-agent-darker/50">
+            <td class="py-3 px-3 text-agent-text font-bold">3</td>
+            <td class="py-3 px-3"><code class="text-agent-accent text-xs">PROJECT/CLAUDE.md</code></td>
+            <td class="py-3 px-3">Este proyecto</td>
+            <td class="py-3 px-3">Inicio de sesion</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-3 px-3 text-agent-text font-bold">4</td>
+            <td class="py-3 px-3"><code class="text-agent-accent text-xs">PROJECT/.claude/CLAUDE.md</code></td>
+            <td class="py-3 px-3">Este proyecto (privado)</td>
+            <td class="py-3 px-3">Inicio de sesion</td>
+          </tr>
+          <tr class="border-b border-agent-border/50 bg-agent-darker/50">
+            <td class="py-3 px-3 text-agent-text font-bold">5</td>
+            <td class="py-3 px-3"><code class="text-agent-accent text-xs">.claude/rules/*.md</code></td>
+            <td class="py-3 px-3">Path-specific</td>
+            <td class="py-3 px-3 text-agent-warning">Cuando archivos matchean</td>
+          </tr>
+          <tr>
+            <td class="py-3 px-3 text-agent-text font-bold">6</td>
+            <td class="py-3 px-3"><code class="text-agent-accent text-xs">(Auto-generated)</code></td>
+            <td class="py-3 px-3">Session-specific</td>
+            <td class="py-3 px-3 text-agent-warning">Dinamico</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Checklist de revision de codigo IA</h3>
-    <div class="space-y-3 mb-6">
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-danger text-xl shrink-0">1</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Seguridad primero</h4>
-          <p class="text-sm text-agent-muted">Busca inyecciones SQL, XSS, credenciales hardcodeadas, validaciones faltantes, permisos excesivos. El agente no siempre piensa en seguridad. Preguntate: "si un atacante envia input malicioso, que pasa?"</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-warning text-xl shrink-0">2</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Consistencia con el proyecto</h4>
-          <p class="text-sm text-agent-muted">Verifica que siga las convenciones del equipo, use los patrones establecidos, y no introduzca dependencias innecesarias. Si el proyecto usa Repository Pattern, el agente no deberia meter queries directas en el router.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-info text-xl shrink-0">3</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Imports y dependencias reales</h4>
-          <p class="text-sm text-agent-muted">Los agentes a veces "alucinan" imports que no existen o usan APIs de versiones incorrectas. Verifica que cada import exista y que la funcion se use correctamente segun la version instalada.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-xl shrink-0">4</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Tests y edge cases</h4>
-          <p class="text-sm text-agent-muted">Los agentes tienden a generar el "happy path" perfecto pero ignoran casos borde. Verifica que haya tests para errores, inputs vacios, limites, y concurrencia si aplica.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-success text-xl shrink-0">5</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Logica de negocio correcta</h4>
-          <p class="text-sm text-agent-muted">El agente puede escribir codigo que "se ve bien" pero no hace lo que deberia. Traza el flujo mentalmente: "si el usuario hace X, pasa Y, y el resultado es Z." Si no coincide con los requisitos, hay un bug.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-purple-400 text-xl shrink-0">6</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Performance</h4>
-          <p class="text-sm text-agent-muted">Los agentes suelen escribir codigo correcto pero ineficiente: N+1 queries, loops innecesarios, falta de indices, cargar todo en memoria. Preguntate: "como se comporta esto con 10K registros?"</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-pink-400 text-xl shrink-0">7</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Manejo de errores completo</h4>
-          <p class="text-sm text-agent-muted">El agente suele manejar 1-2 tipos de error. En produccion hay decenas: timeouts, conexiones caidas, datos corruptos, permisos denegados. Verifica que los errores se manejen y que el usuario reciba feedback util.</p>
-        </div>
-      </div>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La <strong class="text-agent-text">Capa 1 (Managed Policy)</strong> es invisible para ti. Es donde Anthropic define las reglas de seguridad base del modelo. La <strong class="text-agent-text">Capa 2 (User Global)</strong> es tu archivo personal que se aplica a TODOS tus proyectos. Aqui van preferencias universales: tu estilo de commit, herramientas que prefieres, idioma de respuestas, reglas que nunca cambian.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Las <strong class="text-agent-text">Capas 3 y 4</strong> son a nivel de proyecto. La diferencia: Capa 3 (<code class="text-agent-accent">PROJECT/CLAUDE.md</code>) se commitea al repo y la comparte el equipo. La Capa 4 (<code class="text-agent-accent">PROJECT/.claude/CLAUDE.md</code>) esta en <code class="text-agent-accent">.gitignore</code> y es para tus preferencias personales dentro del proyecto.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La <strong class="text-agent-text">Capa 5 (Path Rules)</strong> es la mas poderosa y menos conocida. Puedes crear archivos como <code class="text-agent-accent">.claude/rules/frontend.md</code> con un frontmatter que especifica un glob pattern. Ese archivo solo se carga cuando el agente toca archivos que matchean el patron.
+    </p>
+
+    {@html `<pre class="code-block text-xs mb-6"># .claude/rules/frontend.md
+---
+globs: "src/components/**/*.svelte"
+---
+
+## Reglas Frontend
+- Usar Svelte 5 runes ($state, $derived, $props)
+- NUNCA usar Svelte 4 stores en componentes
+- Tailwind CSS v4 para estilos
+- Unicode: usar HTML entities (&#38;#xXXXX;) en templates, no \\u{XXXX}</pre>`}
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave: Target de 2.5K tokens</p>
+      <p class="text-sm text-agent-muted">Boris Cherny (autor de "22 Tips for Claude Code") recomienda mantener el CLAUDE.md principal bajo <strong>2.5K tokens</strong>. Si necesitas mas, usa la sintaxis <code class="text-agent-accent">@path/to/file.md</code> para importar archivos adicionales que se cargan bajo demanda, o distribuye las reglas en Path Rules (Capa 5) que solo se cargan cuando son relevantes.</p>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Errores comunes que genera la IA</h3>
+    <h3 class="text-lg font-bold text-agent-text mb-3">Que incluir vs que NO incluir</h3>
+
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-danger font-bold text-sm mb-2">Imports alucinados</p>
-        {@html `<pre class="code-block text-xs text-agent-muted"># El agente escribe esto:
-from fastapi.security import JWTBearer
-# Pero JWTBearer NO EXISTE en FastAPI
-# Lo invento basandose en patrones similares
-
-# La version correcta:
-from fastapi.security import HTTPBearer</pre>`}
+      <div class="card border-t-4 border-t-agent-success bg-agent-dark">
+        <h4 class="text-agent-success font-bold mb-2">SI incluir</h4>
+        <ul class="text-sm text-agent-muted space-y-1">
+          <li>&#x2713; Stack tecnologico y versiones</li>
+          <li>&#x2713; Convenciones de codigo (naming, patterns)</li>
+          <li>&#x2713; Estructura del proyecto (breve)</li>
+          <li>&#x2713; Restricciones criticas ("NUNCA usar X")</li>
+          <li>&#x2713; Comandos de build/test/deploy</li>
+          <li>&#x2713; Patrones arquitectonicos del proyecto</li>
+        </ul>
       </div>
-      <div class="bg-agent-dark border border-agent-border rounded-lg p-4">
-        <p class="text-agent-danger font-bold text-sm mb-2">API de version incorrecta</p>
-        {@html `<pre class="code-block text-xs text-agent-muted"># El agente usa Pydantic v1 syntax:
-class User(BaseModel):
-    class Config:
-        orm_mode = True
-
-# Pero tu proyecto usa Pydantic v2:
-class User(BaseModel):
-    model_config = ConfigDict(from_attributes=True)</pre>`}
+      <div class="card border-t-4 border-t-agent-danger bg-agent-dark">
+        <h4 class="text-agent-danger font-bold mb-2">NO incluir</h4>
+        <ul class="text-sm text-agent-muted space-y-1">
+          <li>&#x2717; Documentacion completa de APIs</li>
+          <li>&#x2717; Cosas obvias ("usa variables descriptivas")</li>
+          <li>&#x2717; Tutoriales o explicaciones largas</li>
+          <li>&#x2717; Contenido duplicado entre capas</li>
+          <li>&#x2717; Historial de cambios del proyecto</li>
+          <li>&#x2717; Secretos o credenciales</li>
+        </ul>
       </div>
     </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">El "Hallucination Journal"</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Un concepto poderoso: lleva un registro de los errores que tu agente comete frecuentemente. Despues de 2-3 semanas, tendras un patron claro de SUS debilidades especificas, y podras anticipar y detectar esos errores mas rapido. Algunos errores comunes que vas a encontrar:
-    </p>
-    <ul class="space-y-2 text-sm text-agent-muted mb-4">
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> Mezclar versiones de librerias (Pydantic v1 vs v2, SQLAlchemy 1.x vs 2.0)</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> Usar funciones deprecated sin darse cuenta</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> Inventar parametros de funciones que no existen</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> Generar tests que siempre pasan (no prueban nada realmente)</li>
-      <li class="flex items-start gap-2"><span class="text-agent-accent shrink-0">*</span> Olvidar manejar el caso None/null/undefined</li>
-    </ul>
 
     <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
       <p class="text-sm text-agent-info font-bold mb-1">Caso Real</p>
-      <p class="text-sm text-agent-muted">Un equipo de desarrollo desplego un endpoint generado por IA que parecia perfecto: tenia type hints, seguia el pattern del proyecto, pasaba los tests. Pero en produccion, bajo carga alta, el endpoint hacia un query N+1 que cargaba TODOS los registros relacionados. Con 50 requests concurrentes, la base de datos se satura y el servicio cayo. El agente escribio codigo "correcto" pero sin pensar en performance a escala. La leccion: los tests no cubrian el escenario de carga.</p>
+      <p class="text-sm text-agent-muted">Este mismo curso (Agent Mastery) tiene un CLAUDE.md de ~2K tokens que le dice al agente: stack (SvelteKit + Svelte 5 + Tailwind 4), componentes disponibles, interfaces, patron de cada modulo, y convenciones de estilos. Cuando el agente trabaja en un modulo, sabe exactamente que componentes usar, que runes aplicar, y que clases CSS son validas. Sin ese CLAUDE.md, cada sesion empezaria con 15 minutos de "descubrimiento" del proyecto.</p>
     </div>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Construir intuicion: 2-3 meses de practica deliberada</h3>
-    <p class="text-agent-muted leading-relaxed mb-3">
-      Revisar codigo de IA es una habilidad que se desarrolla. Al principio todo se ve "correcto" porque la sintaxis es perfecta. Con el tiempo aprendes a ver los patrones de error: imports sospechosos, logica demasiado simple para un problema complejo, ausencia de manejo de errores. La regla general: si el codigo del agente se ve "demasiado facil" para un problema que tu sabes que es complejo, probablemente le falta algo.
+    <h3 class="text-lg font-bold text-agent-text mb-3">Ejemplo completo de Path Rules en equipo</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Imagina un monorepo con frontend (Svelte), backend (FastAPI), y infraestructura (Terraform). Cada area tiene reglas diferentes. Con Path Rules, configuras reglas especificas que SOLO se cargan cuando el agente toca archivos de esa area:
     </p>
 
-    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">El objetivo no es desconfiar de todo lo que genera el agente. Es desarrollar el instinto para saber DONDE mirar. Con el tiempo, sabes que la seguridad, los edge cases, y la performance son los puntos debiles de la IA, y concentras tu revision ahi. El happy path suele estar bien; las esquinas son donde viven los bugs.</p>
-    </div>
+    {@html `<pre class="code-block text-xs mb-4"># .claude/rules/backend.md
+---
+globs: "backend/**/*.py"
+---
+- FastAPI 0.115+ con SQLAlchemy 2.0 async
+- Pydantic v2 para DTOs, NUNCA v1
+- Repository pattern para data access
+- Type hints obligatorios en TODAS las funciones
+
+# .claude/rules/infra.md
+---
+globs: "infra/**/*.tf"
+---
+- Terraform 1.9+ con OpenTofu compatible
+- Modulos reutilizables en modules/
+- Variables con description y validation blocks
+- NUNCA hardcodear IPs o secrets</pre>`}
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Cuando el agente edita un archivo Python en <code class="text-agent-accent">backend/</code>, automaticamente recibe las reglas del backend. Cuando edita Terraform, recibe las reglas de infra. Las reglas del frontend no se cargan cuando trabajas en el backend, ahorrando tokens y evitando confusiones.
+    </p>
   </section>
 
-  <!-- THEORY SECTION 5: Proyectos Agent-Friendly -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 4: Just-In-Time Strategy -->
+  <!-- ═══════════════════════════════════════════════════ -->
   <section class="mb-10 fade-in">
-    <h2 class="text-2xl font-bold text-agent-text mb-4">Estructurar Proyectos Agent-Friendly</h2>
+    <h2 class="text-2xl font-bold text-agent-text mb-4">Estrategia Just-In-Time</h2>
+
     <p class="text-agent-muted leading-relaxed mb-4">
-      Un proyecto bien estructurado hace que los agentes sean <strong class="text-agent-highlight">drasticamente mas efectivos</strong>. Piensalo asi: si un humano nuevo tarda 2 semanas en entender tu codebase, el agente tambien va a batallar. La diferencia: el humano puede preguntar en Slack. El agente solo tiene lo que puede leer.
+      El instinto natural es cargar toda la informacion posible al inicio de la sesion: "asi el agente tiene TODO lo que necesita". Pero esto es exactamente lo que causa context rot. La estrategia <strong class="text-agent-text">Just-In-Time (JIT)</strong> invierte esta logica: carga el minimo al inicio y deja que el agente obtenga detalles bajo demanda.
     </p>
 
-    <h3 class="text-lg font-bold text-agent-text mb-3">Las 10 practicas que hacen tu proyecto agent-friendly</h3>
-    <div class="space-y-3 mb-6">
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">01</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">README actualizado y completo</h4>
-          <p class="text-sm text-agent-muted">Tu README es la primera impresion del agente sobre tu proyecto. Debe incluir: como instalar, como correr, como testear, y la estructura del proyecto. Si tu README dice "TODO: write docs", el agente va a improvisar.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">02</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Nombres descriptivos y consistentes</h4>
-          <p class="text-sm text-agent-muted"><code class="text-agent-accent">user_repository.py</code> le dice al agente exactamente que hay adentro. <code class="text-agent-accent">utils.py</code> no le dice nada. <code class="text-agent-accent">helpers2_final_v3.py</code> le dice que tu proyecto necesita ayuda urgente.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">03</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Tests automatizados ejecutables</h4>
-          <p class="text-sm text-agent-muted">Los tests son el sistema de verificacion del agente. Sin tests, el agente no tiene forma de saber si su cambio rompio algo. Con tests, puede ejecutar <code class="text-agent-accent">pytest</code> despues de cada cambio y detectar regresiones inmediatamente.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">04</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Type annotations en todo</h4>
-          <p class="text-sm text-agent-muted">Los type hints le dicen al agente que tipo de datos espera y retorna cada funcion. Sin tipos, el agente tiene que adivinar si <code class="text-agent-accent">process(data)</code> recibe un string, un dict, o un DataFrame. Con tipos: <code class="text-agent-accent">process(data: pd.DataFrame) -> dict[str, float]</code>.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">05</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Archivos modulares y pequeños</h4>
-          <p class="text-sm text-agent-muted">Un archivo de 2000 lineas consume context window innecesariamente. Archivos de 100-300 lineas con una sola responsabilidad son ideales: el agente lee solo lo que necesita.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">06</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">CI/CD como guardrail</h4>
-          <p class="text-sm text-agent-muted">Si el agente introduce un bug, el CI/CD lo detecta antes de que llegue a produccion. Linting, type checking, tests, y security scans actuan como una red de seguridad automatica.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">07</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Rules file versionado</h4>
-          <p class="text-sm text-agent-muted">CLAUDE.md, .cursorrules, o AGENTS.md en la raiz del repo. Versionado con Git para que todo el equipo use las mismas reglas.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">08</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Estructura de carpetas predecible</h4>
-          <p class="text-sm text-agent-muted">Si el agente necesita crear un nuevo endpoint, debe saber DONDE va el archivo sin adivinar. Estructura clara: <code class="text-agent-accent">routers/</code>, <code class="text-agent-accent">services/</code>, <code class="text-agent-accent">repositories/</code>, <code class="text-agent-accent">schemas/</code>.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">09</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Documentacion inline (docstrings)</h4>
-          <p class="text-sm text-agent-muted">Los docstrings explican la INTENCION del codigo, no solo QUE hace. El agente puede leer el codigo y entender la sintaxis, pero necesita docstrings para entender el POR QUE.</p>
-        </div>
-      </div>
-      <div class="flex items-start gap-3 p-3 bg-agent-dark rounded-lg border border-agent-border">
-        <span class="text-agent-accent text-lg shrink-0 font-bold">10</span>
-        <div>
-          <h4 class="text-agent-text font-bold text-sm">Separacion clara de responsabilidades</h4>
-          <p class="text-sm text-agent-muted">Si la logica de negocio esta mezclada con las queries de DB y la presentacion, el agente no sabe donde hacer cambios. Clean Architecture no es capricho; es lo que permite que el agente (y tu equipo) trabaje efectivamente.</p>
-        </div>
-      </div>
-    </div>
-
-    <h3 class="text-lg font-bold text-agent-text mb-3">Mono-repo vs Multi-repo para agentes</h3>
     <p class="text-agent-muted leading-relaxed mb-4">
-      Los agentes funcionan mejor con <strong class="text-agent-text">mono-repos</strong> porque tienen acceso a todo el contexto del proyecto en un solo lugar. Con multi-repos, el agente solo ve el repositorio actual y no puede hacer cambios coordinados entre servicios. Sin embargo, los mono-repos grandes pueden sobrecargar el context window. La solucion intermedia: mono-repo con modulos bien separados y un buen CLAUDE.md que explique la estructura.
+      En la practica, esto significa proporcionar <strong class="text-agent-text">identificadores ligeros</strong> en vez de contenido completo. En lugar de pegar 50K tokens de documentacion de API en el CLAUDE.md, escribe una linea: <em>"La documentacion del API esta en /docs/api/ con un archivo por endpoint. Leelos cuando necesites detalles."</em> El agente es inteligente. Sabe cuando necesita mas informacion y puede usar sus herramientas (Read, Glob, Grep) para obtenerla.
     </p>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <div class="card bg-agent-dark border-agent-success/30">
-        <h3 class="text-agent-success font-bold mb-2">Agent-Friendly</h3>
-        <ul class="space-y-2 text-sm text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> README actualizado con setup, arquitectura y convenciones</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> Nombres de archivos descriptivos y consistentes</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> Tests automatizados que el agente puede correr</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> CI/CD que valida cada cambio</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> Codigo modular con responsabilidades claras</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> Rules file (CLAUDE.md, .cursorrules) en el repo</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> Type annotations y docstrings</li>
-          <li class="flex items-start gap-2"><span class="text-agent-success">&#x2713;</span> Archivos pequeños con una sola responsabilidad</li>
-        </ul>
-      </div>
+      <div class="card border-l-4 border-l-agent-danger bg-agent-dark">
+        <h3 class="text-agent-danger font-bold mb-2">Anti-patron: Eager Loading</h3>
+        {@html `<pre class="code-block text-xs mt-2"># CLAUDE.md (BAD - 8K tokens!)
+## API Endpoints
+### GET /users
+Retorna lista de usuarios...
+[200 lineas de documentacion]
 
-      <div class="card bg-agent-dark border-agent-danger/30">
-        <h3 class="text-agent-danger font-bold mb-2">Agent-Hostile</h3>
-        <ul class="space-y-2 text-sm text-agent-muted">
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Sin README o README desactualizado</li>
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Archivos gigantes con multiples responsabilidades</li>
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Sin tests: el agente no puede verificar sus cambios</li>
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Sin CI/CD: ningun guardrail automatizado</li>
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Convenciones inconsistentes entre archivos</li>
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Logica de negocio mezclada con infraestructura</li>
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Sin type hints: el agente adivina tipos</li>
-          <li class="flex items-start gap-2"><span class="text-agent-danger">&#x2717;</span> Variables y funciones con nombres ambiguos</li>
-        </ul>
+### POST /users
+Crea un usuario...
+[150 lineas de documentacion]
+
+### GET /users/:id
+[100 lineas mas...]</pre>`}
+        <p class="text-sm text-agent-muted mt-2">8K+ tokens gastados al inicio. La mayoria nunca se usaran en esta sesion.</p>
       </div>
+      <div class="card border-l-4 border-l-agent-success bg-agent-dark">
+        <h3 class="text-agent-success font-bold mb-2">Patron: JIT Loading</h3>
+        {@html `<pre class="code-block text-xs mt-2"># CLAUDE.md (GOOD - 200 tokens)
+## API
+- Docs: /docs/api/*.md (1 file per endpoint)
+- Schema: /docs/openapi.yaml
+- Lee los docs cuando necesites detalles
+- Base URL: /api/v2</pre>`}
+        <p class="text-sm text-agent-muted mt-2">200 tokens. El agente carga detalles SOLO cuando los necesita.</p>
+      </div>
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      La estrategia JIT funciona porque los agentes modernos son excelentes en <strong class="text-agent-text">progressive disclosure</strong>: primero leen el resumen, identifican que archivos son relevantes para la tarea actual, y luego cargan solo esos archivos. Claude Code hace esto nativamente con Glob (buscar archivos por patron), Grep (buscar contenido), y Read (leer archivos especificos).
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Dato</p>
+      <p class="text-sm text-agent-muted">Anthropic reporta que Tool Search Tool (la herramienta que carga tools bajo demanda en vez de cargar todas al inicio) logra una <strong>reduccion del 85% en tokens consumidos</strong> por las definiciones de herramientas. El mismo principio aplica a tu contexto: carga bajo demanda, no por adelantado.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Progressive Disclosure en la practica</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      El concepto viene de UX design: no muestres toda la informacion de golpe, revela detalles progresivamente a medida que el usuario (en este caso, el agente) los necesita. Aplicado a context engineering, significa organizar tu informacion en <strong class="text-agent-text">3 niveles de profundidad</strong>:
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+      <div class="card bg-agent-dark text-center">
+        <p class="text-agent-accent font-bold text-sm mb-1">Nivel 1: Siempre</p>
+        <p class="text-xs text-agent-muted">CLAUDE.md con el resumen del proyecto (~2.5K tokens)</p>
+      </div>
+      <div class="card bg-agent-dark text-center">
+        <p class="text-agent-warning font-bold text-sm mb-1">Nivel 2: Condicional</p>
+        <p class="text-xs text-agent-muted">Path Rules que se cargan segun el area (.claude/rules/)</p>
+      </div>
+      <div class="card bg-agent-dark text-center">
+        <p class="text-agent-success font-bold text-sm mb-1">Nivel 3: On-demand</p>
+        <p class="text-xs text-agent-muted">Archivos que el agente lee solo cuando necesita detalles</p>
+      </div>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">El patron @import</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Claude Code soporta la sintaxis <code class="text-agent-accent">@path/to/file.md</code> en CLAUDE.md para importar archivos adicionales. Pero atencion: estos imports se cargan al inicio de sesion, no bajo demanda. Son utiles para modularizar un CLAUDE.md grande en secciones, pero NO son JIT. Para JIT real, usa la tecnica de "proporcionar paths y dejar que el agente lea cuando necesite".
+    </p>
+
+    {@html `<pre class="code-block text-xs mb-4"># CLAUDE.md principal (~500 tokens)
+## Stack: SvelteKit + Svelte 5 + Tailwind 4
+
+## Quick Commands
+- Dev: npm run dev
+- Build: npm run build
+- Check: npm run check
+
+## Conventions
+@docs/conventions.md
+
+## API Reference
+- Docs en /docs/api/ - leer cuando sea necesario
+- Schema en /docs/openapi.yaml</pre>`}
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 5: 3 Tecnicas para Tareas Largas -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">3 Tecnicas para Tareas Largas</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Las tareas cortas (arreglar un bug, escribir una funcion) rara vez tienen problemas de contexto. Pero las tareas que duran horas (refactorizar un modulo completo, disenar una nueva feature, migrar una dependencia) requieren estrategias activas de context management. Aqui van las tres tecnicas principales.
+    </p>
+
+    <!-- Technique 1: Compaction -->
+    <div class="card border-l-4 border-l-purple-500 mb-6">
+      <h3 class="text-lg font-bold text-agent-text mb-2">1. Compaction (<code class="text-agent-accent text-sm">/compact</code>)</h3>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        El comando <code class="text-agent-accent">/compact</code> le dice a Claude Code: "resume toda la conversacion actual preservando las decisiones y el contexto critico, pero descarta los detalles intermedios que ya no necesito". Es como hacer un git squash de tu conversacion.
+      </p>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        <strong class="text-agent-text">Cuando usarlo:</strong> despues de completar un milestone (feature terminada, bug resuelto, fase de investigacion completa). Antes de empezar la siguiente fase de trabajo. Cuando notas los sintomas de context rot.
+      </p>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        <strong class="text-agent-text">Que preserva:</strong> decisiones tomadas, conclusiones de investigacion, estado actual del trabajo, archivos modificados. <strong class="text-agent-text">Que descarta:</strong> tool results detallados, razonamiento intermedio, intentos fallidos, outputs largos de herramientas.
+      </p>
+      <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-3 mt-2">
+        <p class="text-xs text-agent-muted"><strong class="text-agent-warning">Tip:</strong> Puedes pasar instrucciones a compact: <code class="text-agent-accent">/compact focus on the auth module decisions</code> para guiar que se preserva con prioridad.</p>
+      </div>
+    </div>
+
+    <!-- Technique 2: Structured Note-Taking -->
+    <div class="card border-l-4 border-l-blue-500 mb-6">
+      <h3 class="text-lg font-bold text-agent-text mb-2">2. Structured Note-Taking (Agentic Memory)</h3>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        La idea mas poderosa de context engineering: <strong class="text-agent-text">que el agente escriba sus propias notas</strong>. En vez de depender unicamente de la ventana de contexto (que se degrada), el agente mantiene un archivo de progreso que sobrevive a compaction e incluso a /clear.
+      </p>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        Anthropic llama a esto <strong class="text-agent-text">"agentic memory"</strong>. El agente crea un archivo (ej: <code class="text-agent-accent">PROGRESS.md</code> o <code class="text-agent-accent">.claude/progress.md</code>) donde registra: decisiones tomadas, archivos modificados, problemas encontrados, y proximos pasos. Este archivo persiste en el filesystem y el agente puede releerlo despues de un /compact.
+      </p>
+
+      {@html `<pre class="code-block text-xs mb-3"># PROGRESS.md (escrito por el agente)
+## Tarea: Migrar auth de JWT a OAuth2
+
+### Decisiones
+- Usar auth0 como provider (decidido por req de SSO)
+- Mantener JWT para service-to-service
+
+### Completado
+- [x] Configurar auth0 tenant
+- [x] Crear middleware de auth
+- [x] Migrar /login y /register
+
+### Pendiente
+- [ ] Migrar /users endpoints
+- [ ] Tests de integracion
+- [ ] Actualizar docs
+
+### Problemas encontrados
+- El middleware legacy usa headers custom X-Auth-Token
+- Hay 3 endpoints que bypassean auth (intencionalmente)</pre>`}
+
+      <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-3 mt-2">
+        <p class="text-xs text-agent-muted"><strong class="text-agent-info">Dato:</strong> En el articulo sobre harnesses de Anthropic, se reporta que agentes con "initializer" (archivos de progreso leidos al inicio de cada iteracion) mantienen coherencia durante 100+ iteraciones de un loop agentico. Sin initializer, la coherencia cae despues de 20-30 iteraciones.</p>
+      </div>
+    </div>
+
+    <!-- Technique 3: Sub-Agent Architecture -->
+    <div class="card border-l-4 border-l-green-500 mb-6">
+      <h3 class="text-lg font-bold text-agent-text mb-2">3. Sub-Agent Architecture</h3>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        Cuando necesitas investigar algo extenso (leer 10 archivos, analizar un microservicio, buscar patrones en un codebase grande), <strong class="text-agent-text">no contamines el contexto principal</strong>. Lanza un sub-agente con un contexto limpio, dedicado solo a esa tarea de investigacion.
+      </p>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        El sub-agente recibe instrucciones minimas ("analiza el servicio de pagos y retorna un resumen de su API, dependencias, y patrones"), trabaja con su propia ventana de contexto limpia, y retorna un resumen de 1-2K tokens. El agente principal nunca ve los detalles intermedios de la investigacion, solo el resultado destilado.
+      </p>
+      <p class="text-agent-muted leading-relaxed mb-3">
+        En Claude Code, los sub-agentes se lanzan nativamente con <code class="text-agent-accent">Task</code> tool o via <code class="text-agent-accent">claude --print</code> en modo headless. El patron es: <strong class="text-agent-text">main agent coordina, sub-agents investigan, resultados suben resumidos</strong>.
+      </p>
+
+      <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-3 mt-2">
+        <p class="text-xs text-agent-muted"><strong class="text-agent-accent">Analogia:</strong> Piensa en un director de proyecto que envia a 3 investigadores a analizar diferentes sistemas. No necesita ver TODOS los documentos que cada investigador leyo. Solo necesita el reporte ejecutivo de cada uno. El sub-agent pattern es exactamente eso: delegacion con resumen.</p>
+      </div>
+    </div>
+
+    <!-- Technique comparison -->
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border border-agent-border rounded-lg overflow-hidden">
+        <thead class="bg-agent-card">
+          <tr>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Tecnica</th>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Cuando usar</th>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Preserva contexto?</th>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Costo</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-text font-bold">Compaction</td>
+            <td class="py-2 px-3">Entre milestones de la misma tarea</td>
+            <td class="py-2 px-3 text-agent-success">Si (resumido)</td>
+            <td class="py-2 px-3">Bajo (1 llamada al LLM)</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-text font-bold">Note-Taking</td>
+            <td class="py-2 px-3">Tareas de multiples horas/dias</td>
+            <td class="py-2 px-3 text-agent-success">Si (en filesystem)</td>
+            <td class="py-2 px-3">Minimo (Write tool)</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-3 text-agent-text font-bold">Sub-Agents</td>
+            <td class="py-2 px-3">Investigacion/exploracion paralela</td>
+            <td class="py-2 px-3 text-agent-warning">Parcial (solo resumen)</td>
+            <td class="py-2 px-3">Alto (N sesiones extra)</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-4">
-      <p class="text-sm text-agent-warning font-bold mb-1">Concepto Clave</p>
-      <p class="text-sm text-agent-muted">Tu README es la primera impresion del agente sobre tu proyecto. Si el README dice "clone and run", el agente no sabe la arquitectura, las convenciones, ni las restricciones. Un buen README + un buen rules file = un agente que genera codigo consistente desde el primer dia.</p>
-    </div>
-
-    <div class="bg-agent-dark border border-agent-accent/30 rounded-lg p-4">
-      <p class="text-sm text-agent-accent font-bold mb-1">Insight clave:</p>
-      <p class="text-sm text-agent-muted">Lo que hace un proyecto "agent-friendly" es EXACTAMENTE lo que hace un proyecto "developer-friendly". Las buenas practicas de ingenieria de software <strong class="text-agent-text">ya eran correctas</strong> antes de los agentes. La IA simplemente hace que las consecuencias de ignorarlas sean mas inmediatas y visibles. Si tu proyecto es un caos, el agente solo va a generar mas caos.</p>
+      <p class="text-sm text-agent-warning font-bold mb-1">Combinacion ganadora</p>
+      <p class="text-sm text-agent-muted">Las tres tecnicas no son excluyentes. La combinacion mas efectiva para tareas complejas: <strong>sub-agents para investigacion</strong> (cada uno retorna resumen), <strong>note-taking para decisiones</strong> (el agente principal escribe PROGRESS.md), y <strong>compaction cuando el contexto crece</strong>. Los equipos que usan las tres reportan sesiones productivas de 4+ horas sin degradacion.</p>
     </div>
   </section>
 
-  <!-- BranchingScenario -->
-  <section class="mb-10">
-    {#if !showScenario}
-      <div class="card bg-agent-dark border-agent-accent/30 text-center">
-        <span class="text-4xl block mb-3">&#x1F3AF;</span>
-        <h3 class="text-xl font-bold text-agent-text mb-2">Escenario: Configura tu Agente para un Proyecto Real</h3>
-        <p class="text-agent-muted mb-4">Pon a prueba todo lo que aprendiste. Tus decisiones determinan si mereces el badge "Agent Whisperer". Necesitas grado "excellent" o "good" (10+ puntos de 15) para desbloquearlo.</p>
-        <button onclick={() => showScenario = true} class="btn-primary">
-          Comenzar escenario
-        </button>
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 6: La Regla del 60% -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">La Regla del 60%</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Esta es la regla mas simple y mas impactante de context engineering: <strong class="text-agent-text">nunca pre-cargues mas del 60% de la ventana de contexto</strong>. Deja al menos el 40% libre para que el agente trabaje.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Ese 40% libre no es "espacio desperdiciado". Es el espacio que el agente necesita para: leer archivos adicionales con Read/Grep/Glob, ejecutar herramientas y procesar sus resultados, razonar con extended thinking, generar respuestas largas (codigo, explicaciones), y manejar errores con retries. Si pre-cargas el 85% del contexto, el agente tiene solo el 15% para TODA su operacion. Es como darle a un cirujano un quirofano donde el 85% del espacio esta ocupado por documentos.
+    </p>
+
+    <!-- Visual: Context Window Distribution -->
+    <div class="card bg-agent-dark mb-6">
+      <h3 class="text-agent-text font-bold mb-3">Distribucion optima de la ventana de contexto</h3>
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between text-xs text-agent-muted mb-1">
+            <span>CLAUDE.md + System Prompt</span>
+            <span class="text-agent-accent">~5-10%</span>
+          </div>
+          <div class="w-full bg-agent-darker rounded-full h-3">
+            <div class="bg-purple-500 h-3 rounded-full" style="width: 8%"></div>
+          </div>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs text-agent-muted mb-1">
+            <span>Tool Definitions</span>
+            <span class="text-agent-accent">~5-10%</span>
+          </div>
+          <div class="w-full bg-agent-darker rounded-full h-3">
+            <div class="bg-blue-500 h-3 rounded-full" style="width: 8%"></div>
+          </div>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs text-agent-muted mb-1">
+            <span>Archivos / Contexto pre-cargado</span>
+            <span class="text-agent-accent">~20-30%</span>
+          </div>
+          <div class="w-full bg-agent-darker rounded-full h-3">
+            <div class="bg-cyan-500 h-3 rounded-full" style="width: 25%"></div>
+          </div>
+        </div>
+        <div>
+          <div class="flex justify-between text-xs text-agent-muted mb-1">
+            <span>Historial de conversacion</span>
+            <span class="text-agent-accent">~10-20%</span>
+          </div>
+          <div class="w-full bg-agent-darker rounded-full h-3">
+            <div class="bg-yellow-500 h-3 rounded-full" style="width: 15%"></div>
+          </div>
+        </div>
+        <div class="pt-2 border-t border-agent-border/50">
+          <div class="flex justify-between text-xs text-agent-muted mb-1">
+            <span class="text-agent-success font-bold">Espacio libre para el agente (TARGET: 40%+)</span>
+            <span class="text-agent-success font-bold">~40%+</span>
+          </div>
+          <div class="w-full bg-agent-darker rounded-full h-3">
+            <div class="bg-agent-success h-3 rounded-full" style="width: 44%"></div>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Para tareas complejas, Anthropic recomienda dividir el trabajo en <strong class="text-agent-text">fases</strong> para mantener el contexto limpio:
+    </p>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div class="card bg-agent-dark text-center py-4">
+        <span class="text-2xl block mb-1">&#x1F50D;</span>
+        <p class="text-xs text-agent-accent font-bold">Fase 1</p>
+        <p class="text-xs text-agent-muted">Research</p>
+      </div>
+      <div class="card bg-agent-dark text-center py-4">
+        <span class="text-2xl block mb-1">&#x1F4CB;</span>
+        <p class="text-xs text-agent-accent font-bold">Fase 2</p>
+        <p class="text-xs text-agent-muted">Plan</p>
+      </div>
+      <div class="card bg-agent-dark text-center py-4">
+        <span class="text-2xl block mb-1">&#x2699;&#xFE0F;</span>
+        <p class="text-xs text-agent-accent font-bold">Fase 3</p>
+        <p class="text-xs text-agent-muted">Implement</p>
+      </div>
+      <div class="card bg-agent-dark text-center py-4">
+        <span class="text-2xl block mb-1">&#x2705;</span>
+        <p class="text-xs text-agent-accent font-bold">Fase 4</p>
+        <p class="text-xs text-agent-muted">Validate</p>
+      </div>
+    </div>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Usa <code class="text-agent-accent">/clear</code> entre cada fase. El resultado de la fase anterior (plan, codigo, notas) persiste en el filesystem. La siguiente fase empieza con un contexto fresco que lee los artefactos de la fase previa. Es como un relay race donde cada corredor empieza fresco pero recibe el baton del anterior.
+    </p>
+
+    <div class="bg-agent-info/5 border border-agent-info/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-info font-bold mb-1">Caso Real: incident.io</p>
+      <p class="text-sm text-agent-muted">El equipo de incident.io reporto que su workflow de 4-7 agentes concurrentes usa /clear agresivamente entre tareas. Cada agente trabaja en un git worktree aislado con un contexto limpio dedicado a una sola tarea. El resultado: PRs mas pequenos, reviews mas rapidos, y cero contaminacion de contexto entre tareas. La clave fue tratar cada tarea como una sesion independiente.</p>
+    </div>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">La regla del 60% en numeros</p>
+      <p class="text-sm text-agent-muted">Con una ventana de 200K tokens: <strong>120K es tu limite de pre-carga</strong>. Pero en la practica, entre system prompt (~5K), tool definitions (~10K), y CLAUDE.md (~2.5K), ya tienes ~17.5K ocupados antes de empezar. Tu budget real para archivos y contexto es ~100K. Y cada tool call que genere output reduce ese espacio. Planifica en consecuencia.</p>
+    </div>
+
+    <div class="bg-agent-danger/5 border border-agent-danger/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-danger font-bold mb-1">Anti-patron: "La sesion de 6 horas"</p>
+      <p class="text-sm text-agent-muted">Desarrolladores que abren una sesion y trabajan 6 horas sin /clear ni /compact. El contexto crece hasta el 95%, la calidad cae en picada, generan bugs que les toman mas tiempo arreglar que lo que "ahorraron" al no gestionar el contexto. <strong>Una sesion limpia de 30 minutos produce mejor codigo que una sesion sucia de 3 horas.</strong></p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 7: El Impacto de /clear -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">El Impacto de /clear</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Si solo te llevas UNA practica de todo este modulo, que sea esta: <strong class="text-agent-text">usa /clear entre tareas independientes</strong>. Es el cambio mas simple con el impacto mas grande en calidad y costo.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      <code class="text-agent-accent">/clear</code> borra toda la conversacion actual pero mantiene los archivos CLAUDE.md cargados. Es un reset limpio del contexto de trabajo. El agente re-lee tus rules files y empieza fresco, pero tu proyecto sigue ahi con todos los cambios que hiciste en la sesion anterior.
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+      <table class="w-full text-sm border border-agent-border rounded-lg overflow-hidden">
+        <thead class="bg-agent-card">
+          <tr>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Metrica</th>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Sin /clear</th>
+            <th class="text-left py-2 px-3 text-agent-accent font-bold border-b border-agent-border">Con /clear entre tareas</th>
+          </tr>
+        </thead>
+        <tbody class="text-agent-muted">
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-text font-bold">Tokens por tarea</td>
+            <td class="py-2 px-3">Crece exponencialmente</td>
+            <td class="py-2 px-3 text-agent-success">Constante (~base tokens)</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-text font-bold">Ahorro de tokens</td>
+            <td class="py-2 px-3">0% (referencia)</td>
+            <td class="py-2 px-3 text-agent-success">50-70% por sesion</td>
+          </tr>
+          <tr class="border-b border-agent-border/50">
+            <td class="py-2 px-3 text-agent-text font-bold">Calidad en tarea 5</td>
+            <td class="py-2 px-3 text-agent-danger">Degradada (context rot)</td>
+            <td class="py-2 px-3 text-agent-success">Igual que tarea 1</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-3 text-agent-text font-bold">Consistencia</td>
+            <td class="py-2 px-3 text-agent-danger">Decrece con el tiempo</td>
+            <td class="py-2 px-3 text-agent-success">Estable</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">/clear vs /compact: Cuando usar cual</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      <strong class="text-agent-text">/clear</strong> = borra todo. Ideal entre tareas <em>independientes</em> (feature A terminada, empiezo feature B). No necesitas contexto de la tarea anterior.
+    </p>
+    <p class="text-agent-muted leading-relaxed mb-4">
+      <strong class="text-agent-text">/compact</strong> = resume y comprime. Ideal en <em>medio</em> de una tarea larga (completaste investigacion, ahora vas a implementar). Necesitas preservar decisiones pero no los detalles intermedios.
+    </p>
+
+    <div class="bg-agent-accent/5 border border-agent-accent/20 rounded-lg p-4 mb-4">
+      <p class="text-sm text-agent-accent font-bold mb-1">Regla de oro</p>
+      <p class="text-sm text-agent-muted">Si la siguiente tarea NO necesita nada de la conversacion actual: <strong>/clear</strong>. Si la siguiente fase SI necesita las decisiones de la fase actual pero no los detalles: <strong>/compact</strong>. En la duda, <strong>/clear + escribir las decisiones en un archivo</strong> es siempre la opcion mas segura.</p>
+    </div>
+
+    <h3 class="text-lg font-bold text-agent-text mb-3">Workflow diario con /clear</h3>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Un dia tipico de trabajo productivo con un agente se ve asi: arrancas la sesion, el agente lee CLAUDE.md. Trabajas en bug #1 (20 min). <code class="text-agent-accent">/clear</code>. Trabajas en feature #2 (40 min). <code class="text-agent-accent">/compact</code> porque la feature aun no termina pero el contexto crecio. Continuas feature #2 (20 min). <code class="text-agent-accent">/clear</code>. Escribes tests (30 min). Cada tarea obtiene un contexto fresco. Cada transicion es explicita.
+    </p>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Los desarrolladores que adoptan este workflow reportan dos beneficios inesperados: primero, el <strong class="text-agent-text">costo de tokens baja drasticamente</strong> porque el agente no re-procesa 100K tokens de historial viejo en cada llamada. Segundo, la <strong class="text-agent-text">calidad de la 5ta tarea del dia es igual a la 1ra</strong>, porque cada una empieza con un contexto limpio. Sin /clear, la 5ta tarea es notablemente peor que la 1ra.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SECTION 8: Modelo Mental + Resumen -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10 fade-in">
+    <h2 class="text-2xl font-bold text-agent-text mb-4">El Framework Completo de Context Engineering</h2>
+
+    <p class="text-agent-muted leading-relaxed mb-4">
+      Todo lo que aprendiste en este modulo se resume en un flujo ciclico que el diagrama interactivo a continuacion representa. Desde las capas de CLAUDE.md como fundamento, pasando por JIT loading, gestion activa de la memoria de trabajo, compaction, delegacion a sub-agentes, y /clear entre fases. Cada nodo es una herramienta que dominas para mantener al agente operando en su mejor nivel.
+    </p>
+
+    <div class="bg-agent-warning/5 border border-agent-warning/20 rounded-lg p-4 mb-6">
+      <p class="text-sm text-agent-warning font-bold mb-1">Modelo mental: El context engineer</p>
+      <p class="text-sm text-agent-muted">Hazte estas 3 preguntas antes de cada sesion con un agente:</p>
+      <ol class="text-sm text-agent-muted mt-2 space-y-1 list-decimal list-inside">
+        <li><strong class="text-agent-text">Que contexto NECESITA el agente?</strong> (CLAUDE.md, archivos relevantes, nada mas)</li>
+        <li><strong class="text-agent-text">Cuanto durara esta tarea?</strong> (corta = sin gestion, larga = necesito plan de compaction/clear)</li>
+        <li><strong class="text-agent-text">Hay investigacion previa?</strong> (si = sub-agents primero, no = directo a implementar)</li>
+      </ol>
+      <p class="text-sm text-agent-muted mt-2">Si puedes responder estas 3 preguntas antes de empezar, tu sesion sera 2-3x mas productiva que "abrir el agente y ver que pasa".</p>
+    </div>
+
+    <div class="card bg-agent-dark border-agent-accent/30 mb-6">
+      <h3 class="text-agent-accent font-bold mb-3">Checklist de Context Engineering</h3>
+      <ul class="text-sm text-agent-muted space-y-2">
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>CLAUDE.md bajo 2.5K tokens con lo esencial del proyecto</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>Path Rules para reglas especificas por area (.claude/rules/)</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>JIT: paths en vez de contenido completo en el CLAUDE.md</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>/compact entre milestones dentro de una tarea</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>/clear entre tareas independientes</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>Sub-agentes para investigacion sin contaminar contexto principal</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>Fases: Research &#8594; Plan &#8594; Implement &#8594; Validate</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-agent-accent shrink-0">&#9744;</span>
+          <span>Regla del 60%: nunca pre-cargar mas del 60% de la ventana</span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- INTERACTIVE FLOW -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    {#if !showFlow}
+      <button onclick={() => showFlow = true} class="btn-primary w-full justify-center">
+        Explorar el pipeline de context management interactivo
+      </button>
     {:else}
-      <BranchingScenario
-        nodes={scenarioNodes}
-        startId="start"
-        title="Configura tu Agente para un Proyecto Real"
-        onComplete={handleScenarioComplete}
+      <InteractiveFlow
+        nodes={flowNodes}
+        edges={flowEdges}
+        title="Pipeline de Context Engineering"
+        challenges={flowChallenges}
+        onComplete={handleFlowComplete}
       />
+    {/if}
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- QUIZ -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section class="mb-10">
+    {#if !showQuiz}
+      <button onclick={() => showQuiz = true} class="btn-primary w-full justify-center">
+        Comenzar el quiz
+      </button>
+    {:else}
+      <Quiz questions={quizQuestions} onComplete={handleQuizComplete} />
     {/if}
   </section>
 
@@ -1009,7 +957,7 @@ class User(BaseModel):
     <div class="card bg-agent-success/10 border-agent-success/30 text-center mb-8 fade-in">
       <span class="text-4xl block mb-3">&#x1F3AF;</span>
       <h3 class="text-xl font-bold text-agent-success mb-2">Modulo completado!</h3>
-      <p class="text-agent-muted">Ahora sabes como trabajar CON agentes de forma profesional. Rules files, MCP, Plan-Act-Reflect, y revision critica: las cuatro herramientas del Agent Whisperer.</p>
+      <p class="text-agent-muted">Ahora dominas context engineering: la habilidad que separa a los usuarios casuales de los profesionales. Sabes disenar el entorno informacional optimo para que tu agente produzca resultados de maxima calidad de forma consistente.</p>
     </div>
   {/if}
 

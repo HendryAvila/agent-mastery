@@ -19,26 +19,31 @@ export const modules: ModuleInfo[] = [
   {
     id: 1,
     title: 'Anatomia de un Agente IA',
-    subtitle: 'El ciclo observe-think-act que lo cambia todo',
-    icon: '🧬',
+    subtitle: 'El ciclo observe-think-act y Claude Code como implementacion de referencia',
+    icon: '\u{1F9EC}',
     duration: '35 min',
     type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'Que es un agente IA, como funciona internamente, diferencia entre chat/copilot/agente autonomo',
+      'Que es un agente IA, como funciona internamente, y como Claude Code implementa cada componente',
     objectives: [
       'Definir que es un agente IA vs un chatbot',
       'Explicar el agent loop (observe-think-act)',
       'Identificar los 4 componentes core (LLM, Tools, Memory, Planning)',
+      'Mapear cada componente a su implementacion en Claude Code',
       'Clasificar niveles de autonomia'
     ],
     sources: [
       {
         name: 'Anthropic - Building Effective AI Agents',
-        url: 'https://www.anthropic.com/research/building-effective-agents'
+        url: 'https://www.anthropic.com/engineering/building-effective-agents'
       },
       {
-        name: 'OpenAI - A Practical Guide to Building Agents',
-        url: 'https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf'
+        name: 'Anthropic - Building Agents with Claude Agent SDK',
+        url: 'https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk'
+      },
+      {
+        name: 'Claude Code - Overview',
+        url: 'https://code.claude.com/docs/en/overview'
       },
       {
         name: 'ReAct: Synergizing Reasoning and Acting in Language Models (Yao et al. 2022)',
@@ -49,56 +54,62 @@ export const modules: ModuleInfo[] = [
   {
     id: 2,
     title: 'Tool Calling — El Superpoder del Agente',
-    subtitle: 'Function calling, JSON Schema, y como el LLM ejecuta acciones',
-    icon: '🔧',
+    subtitle: 'Function calling, MCP, y los 5 principios de diseno de herramientas',
+    icon: '\u{1F527}',
     duration: '40 min',
     type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'El corazon tecnico de todo agente: como el LLM llama herramientas externas',
+      'El corazon tecnico de todo agente: como el LLM llama herramientas, MCP, y como disenar tools efectivos',
     objectives: [
-      'Explicar function calling y como funciona',
-      'Disenar tool definitions con JSON Schema',
-      'Entender el flujo prompt-tool_call-result-response',
-      'Identificar buenas y malas definiciones de herramientas'
+      'Explicar function calling y el flujo prompt-tool_call-result-response',
+      'Entender MCP: protocolo, transportes (HTTP, SSE, stdio) y scopes',
+      'Aplicar los 5 principios de tool design de Anthropic',
+      'Conocer Tool Search Tool y su reduccion del 85% en tokens',
+      'Disenar tool definitions con JSON Schema'
     ],
     sources: [
       {
-        name: 'OpenAI - Function Calling Documentation',
-        url: 'https://platform.openai.com/docs/guides/function-calling'
+        name: 'Anthropic - Writing Effective Tools for Agents',
+        url: 'https://www.anthropic.com/engineering/writing-tools-for-agents'
+      },
+      {
+        name: 'Anthropic - Advanced Tool Use',
+        url: 'https://www.anthropic.com/engineering/advanced-tool-use'
+      },
+      {
+        name: 'Claude Code - MCP',
+        url: 'https://code.claude.com/docs/en/mcp'
       },
       {
         name: 'Anthropic - Tool Use with Claude',
-        url: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview'
-      },
-      {
-        name: 'Composio - Tool Calling Explained: The Core of AI Agents (2026 Guide)',
-        url: 'https://composio.dev/blog/ai-agent-tool-calling-guide'
+        url: 'https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview'
       }
     ]
   },
   {
     id: 3,
     title: 'El Ecosistema de Agentes 2026',
-    subtitle: 'Claude Code, OpenCode, Cursor, y el resto del universo',
-    icon: '🌐',
+    subtitle: 'Claude Code como protagonista, y el mapa completo del universo agentico',
+    icon: '\u{1F310}',
     duration: '40 min',
     type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'Mapa completo de los agentes de codigo actuales y cuando usar cada uno',
+      'Claude Code como agente principal del curso, comparacion con CLI/IDE/autonomos, y por que es el foco',
     objectives: [
-      'Identificar los principales coding agents del mercado',
+      'Entender por que Claude Code es el agente principal de este curso',
       'Comparar agentes CLI vs IDE vs autonomos',
-      'Evaluar criterios de seleccion de herramientas',
-      'Entender las diferencias entre open source y propietario'
+      'Conocer las superficies de Claude Code (CLI, IDE, SDK, API)',
+      'Evaluar criterios de seleccion entre herramientas',
+      'Identificar tendencias del mercado agentico 2026'
     ],
     sources: [
       {
-        name: 'OpenCode - Documentacion Oficial',
-        url: 'https://opencode.ai/docs/'
+        name: 'Claude Code - Overview',
+        url: 'https://code.claude.com/docs/en/overview'
       },
       {
-        name: 'Claude Code - Documentacion Oficial',
-        url: 'https://code.claude.com/docs/en/overview'
+        name: 'Anthropic - Claude Code Best Practices',
+        url: 'https://code.claude.com/docs/en/best-practices'
       },
       {
         name: 'Faros AI - Best AI Coding Agents for 2026',
@@ -112,287 +123,397 @@ export const modules: ModuleInfo[] = [
   },
   {
     id: 4,
-    title: 'Trabajar CON Agentes Como un Pro',
-    subtitle: 'System prompts, MCP, y el arte de dirigir agentes',
-    icon: '🎯',
+    title: 'Context Engineering',
+    subtitle: 'CLAUDE.md, context rot, y las 3 tecnicas para tareas largas',
+    icon: '\u{1F3AF}',
     duration: '45 min',
-    type: 'Teoria + Escenario Ramificado',
+    type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'Mejores practicas para trabajar efectivamente con agentes de codigo',
+      'El arte de disenar el contexto que recibe el agente: CLAUDE.md, just-in-time context, compaction y sub-agents',
     objectives: [
-      'Escribir system prompts efectivos',
-      'Entender MCP (Model Context Protocol)',
-      'Estructurar proyectos agent-friendly',
-      'Aplicar el flujo Plan-Act-Reflect'
+      'Diferenciar context engineering de prompt engineering',
+      'Dominar la jerarquia de 6 capas de CLAUDE.md',
+      'Aplicar la estrategia just-in-time para cargar contexto',
+      'Usar las 3 tecnicas para tareas largas: compaction, note-taking, sub-agents',
+      'Entender la regla del 60% y el impacto de /clear en costos'
     ],
     sources: [
       {
-        name: 'Anthropic - Model Context Protocol (MCP)',
-        url: 'https://modelcontextprotocol.io/'
+        name: 'Anthropic - Effective Context Engineering for AI Agents',
+        url: 'https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents'
       },
       {
-        name: 'Addy Osmani - My LLM Coding Workflow Going Into 2026',
-        url: 'https://addyosmani.com/blog/ai-coding-workflow/'
+        name: 'Anthropic - Effective Harnesses for Long-Running Agents',
+        url: 'https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents'
       },
       {
-        name: 'RAOGY Guide - Code Review in 2026: Reviewing the AI, Not the Human',
-        url: 'https://raogy.guide/blog/ai-code-review-2026'
+        name: 'Anthropic - Managing Context on Developer Platform',
+        url: 'https://www.anthropic.com/news/context-management'
+      },
+      {
+        name: 'Claude Code - Memory',
+        url: 'https://code.claude.com/docs/en/memory'
+      },
+      {
+        name: 'Claude Code - Best Practices',
+        url: 'https://code.claude.com/docs/en/best-practices'
+      },
+      {
+        name: 'Boris Cherny - 22 Tips for Claude Code',
+        url: 'https://www.builder.io/blog/claude-code-tips'
       }
     ]
   },
   {
     id: 5,
-    title: 'Construye tu Primer Agente',
-    subtitle: 'De cero a un agente funcional',
-    icon: '⚡',
+    title: 'Trabajar CON Claude Code',
+    subtitle: 'El workflow de 4 fases, Plan Mode, y los 5 patrones de fracaso',
+    icon: '\u{1F4BB}',
     duration: '50 min',
-    type: 'Teoria + Quiz + Diagrama Interactivo',
+    type: 'Teoria + Escenario Ramificado + Quiz',
     description:
-      'Arquitectura minima para construir un agente desde cero',
+      'Como trabajar efectivamente con Claude Code: workflow profesional, verificacion, patrones de fracaso, y optimizacion de costos',
     objectives: [
-      'Implementar un agentic loop basico',
-      'Definir herramientas programaticamente',
-      'Manejar el contexto y la ventana de conversacion',
-      'Aplicar retry y error handling para tool calls'
+      'Aplicar el workflow de 4 fases: Explore, Plan, Implement, Commit',
+      'Usar Plan Mode (Shift+Tab) para exploracion read-only',
+      'Identificar y evitar los 5 patrones de fracaso comunes',
+      'Estructurar prompts con Context + Objective + Constraints',
+      'Optimizar costos con /clear, /compact, opusplan y batch API'
     ],
     sources: [
       {
-        name: 'Anthropic - Building Effective AI Agents',
-        url: 'https://www.anthropic.com/research/building-effective-agents'
+        name: 'Claude Code - Best Practices',
+        url: 'https://code.claude.com/docs/en/best-practices'
       },
       {
-        name: 'OpenAI Agents SDK - Documentacion Oficial',
-        url: 'https://openai.github.io/openai-agents-python/'
+        name: 'Claude Code - Common Workflows',
+        url: 'https://code.claude.com/docs/en/tutorials'
       },
       {
-        name: 'Composio - How to Build Great Tools for AI Agents: A Field Guide',
-        url: 'https://composio.dev/blog/how-to-build-tools-for-ai-agents-a-field-guide'
+        name: 'Steve Kinney - Claude Code Deep Dive (Builder.io)',
+        url: 'https://www.builder.io/blog/claude-code'
+      },
+      {
+        name: 'incident.io - Shipping Faster with Claude Code',
+        url: 'https://incident.io/blog/shipping-faster-with-claude-code-and-git-worktrees'
+      },
+      {
+        name: 'Claude Code - Cost Management',
+        url: 'https://code.claude.com/docs/en/costs'
       }
     ]
   },
   {
     id: 6,
-    title: 'Memoria, Planning y Razonamiento',
-    subtitle: 'Como los agentes piensan y recuerdan',
-    icon: '🧠',
-    duration: '45 min',
+    title: 'Construir tu Agente',
+    subtitle: 'Claude Agent SDK, MCP servers, y Hoofy como caso de estudio',
+    icon: '\u26A1',
+    duration: '50 min',
     type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'Sistemas de memoria, estrategias de razonamiento, y como los agentes planifican',
+      'Construir agentes con el ecosistema Claude: Agent SDK, MCP servers, y un caso de estudio real',
     objectives: [
-      'Diferenciar memoria corta/larga/episodica',
-      'Explicar Chain-of-Thought y Tree-of-Thought',
-      'Aplicar el patron ReAct',
-      'Disenar un sistema de memoria para un agente'
+      'Implementar el ciclo de 4 fases del Agent SDK: Gather Context, Take Action, Verify, Iterate',
+      'Entender la estructura de un MCP server y sus tools',
+      'Analizar Hoofy como caso de estudio: composition root, bridge pattern, knowledge graph',
+      'Decidir cuando usar Agent SDK vs Claude Code directo',
+      'Aplicar retry y error handling en agentic loops'
     ],
     sources: [
       {
-        name: 'ReAct: Synergizing Reasoning and Acting in Language Models (Yao et al. 2022)',
-        url: 'https://arxiv.org/abs/2210.03629'
+        name: 'Anthropic - Building Agents with Claude Agent SDK',
+        url: 'https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk'
       },
       {
-        name: 'Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al. 2022)',
-        url: 'https://arxiv.org/abs/2201.11903'
+        name: 'Anthropic - Code Execution with MCP',
+        url: 'https://www.anthropic.com/engineering/code-execution-with-mcp'
       },
       {
         name: 'Anthropic - Building Effective AI Agents',
-        url: 'https://www.anthropic.com/research/building-effective-agents'
+        url: 'https://www.anthropic.com/engineering/building-effective-agents'
+      },
+      {
+        name: 'Hoofy MCP - GitHub',
+        url: 'https://github.com/HendryAvila/Hoofy'
       }
     ]
   },
   {
     id: 7,
-    title: 'Frameworks Multi-Agente',
-    subtitle: 'Claude SDK, OpenAI SDK, Strands, CrewAI y mas',
-    icon: '🔗',
-    duration: '50 min',
+    title: 'Memoria, Planning y Razonamiento',
+    subtitle: 'Think Tool, extended thinking, y la jerarquia de memoria de Claude Code',
+    icon: '\u{1F9E0}',
+    duration: '45 min',
     type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'Comparacion agnostica de los frameworks para construir sistemas multi-agente',
+      'Sistemas de memoria, estrategias de razonamiento, Think Tool, y como Claude Code gestiona el contexto',
     objectives: [
-      'Comparar los principales frameworks multi-agente',
-      'Identificar casos de uso para cada framework',
-      'Evaluar trade-offs de complejidad vs control',
-      'Disenar un criterio de seleccion de framework'
+      'Diferenciar los 6 niveles de memoria en Claude Code',
+      'Explicar Think Tool y su mejora del 54% en tareas complejas',
+      'Configurar extended thinking y MAX_THINKING_TOKENS',
+      'Aplicar Chain-of-Thought y ReAct como patrones de razonamiento',
+      'Entender el impacto de memory + context editing (39% mejora)'
     ],
     sources: [
       {
-        name: 'Claude Agent SDK - Documentacion Oficial',
-        url: 'https://platform.claude.com/docs/en/agent-sdk/overview'
+        name: 'Anthropic - The Think Tool',
+        url: 'https://www.anthropic.com/engineering/claude-think-tool'
       },
       {
-        name: 'OpenAI Agents SDK - Documentacion Oficial',
-        url: 'https://openai.github.io/openai-agents-python/'
+        name: 'Claude Code - Memory',
+        url: 'https://code.claude.com/docs/en/memory'
       },
       {
-        name: 'AWS Strands Agents SDK - Documentacion Oficial',
-        url: 'https://strandsagents.com/latest/'
+        name: 'Anthropic - Effective Harnesses for Long-Running Agents',
+        url: 'https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents'
       },
       {
-        name: 'LangGraph - Documentacion Oficial',
-        url: 'https://www.langchain.com/langgraph'
+        name: 'ReAct: Synergizing Reasoning and Acting (Yao et al. 2022)',
+        url: 'https://arxiv.org/abs/2210.03629'
+      },
+      {
+        name: 'Chain-of-Thought Prompting (Wei et al. 2022)',
+        url: 'https://arxiv.org/abs/2201.11903'
       }
     ]
   },
   {
     id: 8,
-    title: 'Patrones de Orquestacion Multi-Agente',
-    subtitle: 'Orchestrator, Handoff, Hierarchical y mas',
-    icon: '🎭',
+    title: 'Claude Code Deep Dive',
+    subtitle: 'Hooks, skills, sub-agents, permisos y modo headless',
+    icon: '\u{1F52C}',
     duration: '50 min',
-    type: 'Teoria + Escenario Ramificado',
+    type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'Los patrones arquitectonicos para coordinar multiples agentes',
+      'Domina la arquitectura interna de Claude Code: directorio .claude/, hooks, skills, sub-agents, permisos y headless mode',
     objectives: [
-      'Aplicar el patron Orchestrator-Worker',
-      'Implementar handoffs entre agentes',
-      'Disenar jerarquias de agentes',
-      'Elegir el patron correcto para cada problema'
+      'Navegar la estructura completa del directorio .claude/',
+      'Configurar hooks (17 eventos, 3 tipos, exit codes, matchers)',
+      'Crear skills con SKILL.md, frontmatter y contexto dinamico',
+      'Usar sub-agents (built-in + custom) con isolation y memoria',
+      'Configurar permisos (allow/ask/deny) y sandbox',
+      'Ejecutar Claude Code en modo headless para CI/CD'
     ],
     sources: [
       {
-        name: 'OpenAI - A Practical Guide to Building Agents',
-        url: 'https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf'
+        name: 'Claude Code - Hooks Reference',
+        url: 'https://code.claude.com/docs/en/hooks'
       },
       {
-        name: 'Microsoft Azure - AI Agent Orchestration Patterns',
-        url: 'https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns'
+        name: 'Claude Code - Hooks Guide',
+        url: 'https://code.claude.com/docs/en/hooks-guide'
       },
       {
-        name: 'Vellum - The 2026 Guide to AI Agent Workflows',
-        url: 'https://www.vellum.ai/blog/agentic-workflows-emerging-architectures-and-design-patterns'
+        name: 'Claude Code - Skills',
+        url: 'https://code.claude.com/docs/en/skills'
+      },
+      {
+        name: 'Claude Code - Sub-Agents',
+        url: 'https://code.claude.com/docs/en/sub-agents'
+      },
+      {
+        name: 'Claude Code - Settings',
+        url: 'https://code.claude.com/docs/en/settings'
+      },
+      {
+        name: 'Claude Code - Permissions',
+        url: 'https://code.claude.com/docs/en/permissions'
+      },
+      {
+        name: 'Claude Code - Headless Mode',
+        url: 'https://code.claude.com/docs/en/headless'
+      },
+      {
+        name: 'Anthropic - Claude Code Sandboxing',
+        url: 'https://www.anthropic.com/engineering/claude-code-sandboxing'
       }
     ]
   },
   {
     id: 9,
-    title: 'Guardrails, Seguridad y Evaluacion',
-    subtitle: 'Porque un agente sin limites es un agente peligroso',
-    icon: '🛡️',
-    duration: '45 min',
-    type: 'Teoria + Quiz + Escenario Ramificado',
+    title: 'Multi-Agent: Frameworks y Orquestacion',
+    subtitle: 'Claude Agent SDK, 5 patrones, Agent Teams, y casos reales',
+    icon: '\u{1F3AD}',
+    duration: '50 min',
+    type: 'Teoria + Escenario Ramificado + Quiz',
     description:
-      'Como proteger, limitar, y evaluar agentes autonomos',
+      'Frameworks multi-agente, patrones de orquestacion, Agent Teams, y casos de estudio reales de Anthropic',
     objectives: [
-      'Implementar guardrails como concepto first-class',
-      'Identificar vectores de ataque (prompt injection, data exfiltration)',
-      'Disenar un pipeline de evaluacion',
-      'Entender benchmarks (SWE-bench, HumanEval)'
+      'Comparar Claude Agent SDK vs LangGraph vs CrewAI',
+      'Aplicar los 5 patrones: Orchestrator-Worker, Pipeline, Handoff, Parallelization, Evaluator-Optimizer',
+      'Entender Agent Teams: team lead, teammates, shared task list',
+      'Analizar el Multi-Agent Research System (90.2% mejora)',
+      'Estudiar el compilador C de 16 agentes (100K lineas Rust)'
     ],
     sources: [
       {
-        name: 'Google ADK - Safety and Security for AI Agents',
-        url: 'https://google.github.io/adk-docs/safety/'
+        name: 'Anthropic - Multi-Agent Research System',
+        url: 'https://www.anthropic.com/engineering/multi-agent-research-system'
       },
       {
-        name: 'OpenAI Agents SDK - Guardrails',
-        url: 'https://openai.github.io/openai-agents-python/guardrails/'
+        name: 'Anthropic - Building a C Compiler',
+        url: 'https://www.anthropic.com/engineering/building-c-compiler'
       },
       {
-        name: 'OWASP Top 10 for LLM Applications 2025',
-        url: 'https://owasp.org/www-project-top-10-for-large-language-model-applications/'
+        name: 'Claude Code - Agent Teams',
+        url: 'https://code.claude.com/docs/en/agent-teams'
       },
       {
-        name: 'Prompt Engineering Guide - Prompting Guide',
-        url: 'https://www.promptingguide.ai/'
+        name: 'Claude Code - Sub-Agents',
+        url: 'https://code.claude.com/docs/en/sub-agents'
+      },
+      {
+        name: 'Addy Osmani - Claude Code Agent Teams',
+        url: 'https://addyosmani.com/blog/claude-code-agent-teams/'
       }
     ]
   },
   {
     id: 10,
-    title: 'El Entorno del Agent Architect',
-    subtitle: 'Terminales, IDEs, y el setup definitivo',
-    icon: '🖥️',
-    duration: '40 min',
-    type: 'Teoria + Quiz + Diagrama Interactivo',
+    title: 'Guardrails, Seguridad y Evaluacion',
+    subtitle: 'Permisos de Claude Code, sandbox, hooks como guardrails, y evals',
+    icon: '\u{1F6E1}\uFE0F',
+    duration: '45 min',
+    type: 'Teoria + Quiz + Escenario Ramificado',
     description:
-      'Herramientas, terminales y configuraciones para trabajo multi-agente',
+      'Proteger y evaluar agentes: modelo de permisos de Claude Code, sandbox, hooks preventivos, y framework de evaluacion',
     objectives: [
-      'Configurar terminales para multi-agente (tmux, zellij)',
-      'Entender Claude CoWork y Agent Teams',
-      'Optimizar el flujo IDE + CLI + agentes',
-      'Disenar un workspace profesional para desarrollo agentico'
+      'Implementar guardrails como concepto first-class',
+      'Configurar el modelo de permisos de Claude Code (allow/ask/deny)',
+      'Entender sandbox: aislamiento de filesystem y red',
+      'Usar hooks PreToolUse como guardrails preventivos',
+      'Disenar evaluaciones: 3 tipos de graders, pass@k, pass^k',
+      'Entender infrastructure noise y su impacto en benchmarks'
     ],
     sources: [
       {
-        name: 'Zellij - Terminal Workspace',
-        url: 'https://zellij.dev/'
+        name: 'Anthropic - Claude Code Sandboxing',
+        url: 'https://www.anthropic.com/engineering/claude-code-sandboxing'
       },
       {
-        name: 'Claude Code - Documentacion Oficial',
-        url: 'https://code.claude.com/docs/en/overview'
+        name: 'Anthropic - Demystifying Evals for AI Agents',
+        url: 'https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents'
       },
       {
-        name: 'Claude CoWork - Introducing Cowork',
-        url: 'https://claude.com/blog/cowork-research-preview'
+        name: 'Anthropic - Infrastructure Noise in Evaluations',
+        url: 'https://www.anthropic.com/engineering/infrastructure-noise'
       },
       {
-        name: 'Anthropic - Introducing Claude Opus 4.6',
-        url: 'https://www.anthropic.com/news/claude-opus-4-6'
+        name: 'Claude Code - Permissions',
+        url: 'https://code.claude.com/docs/en/permissions'
+      },
+      {
+        name: 'OWASP Top 10 for LLM Applications 2025',
+        url: 'https://owasp.org/www-project-top-10-for-large-language-model-applications/'
       }
     ]
   },
   {
     id: 11,
-    title: 'Agentes en Produccion',
-    subtitle: 'CI/CD, costos, observabilidad y lo que nadie te dice',
-    icon: '🏭',
-    duration: '45 min',
-    type: 'Teoria + Escenario con Timer',
+    title: 'Entorno del Agent Architect',
+    subtitle: 'Workspace Claude Code, worktrees, multi-sesion, y caso incident.io',
+    icon: '\u{1F5A5}\uFE0F',
+    duration: '40 min',
+    type: 'Teoria + Quiz + Diagrama Interactivo',
     description:
-      'Llevando agentes a produccion: las lecciones duras',
+      'Configurar el entorno profesional: workspace Claude Code (70%), terminal multiplexer (30%), worktrees y multi-session',
     objectives: [
-      'Disenar pipelines CI/CD con agentes',
-      'Implementar observabilidad y logging',
-      'Gestionar costos de tokens y APIs',
-      'Decidir cuando NO usar agentes'
+      'Configurar un workspace completo de Claude Code (.claude/, MCP, settings)',
+      'Usar git worktrees para trabajo paralelo con multiples sesiones',
+      'Implementar patrones multi-session (Boris Cherny: 3-5 sesiones)',
+      'Analizar el caso incident.io: 4-7 agentes concurrentes, fast tooling',
+      'Conocer el ecosistema de plugins: compound-engineering, ContextKit'
     ],
     sources: [
       {
-        name: 'Prompt Engineering Institute - Agents At Work: The 2026 Playbook',
-        url: 'https://promptengineering.org/agents-at-work-the-2026-playbook-for-building-reliable-agentic-workflows/'
+        name: 'incident.io - Shipping Faster with Claude Code and Git Worktrees',
+        url: 'https://incident.io/blog/shipping-faster-with-claude-code-and-git-worktrees'
       },
       {
-        name: 'Addy Osmani - My LLM Coding Workflow Going Into 2026',
-        url: 'https://addyosmani.com/blog/ai-coding-workflow/'
+        name: 'Claude Code - Common Workflows',
+        url: 'https://code.claude.com/docs/en/tutorials'
       },
       {
-        name: 'Skywork - Best Practices for Multi-Agent Orchestration and Reliable Handoffs',
-        url: 'https://skywork.ai/blog/ai-agent-orchestration-best-practices-handoffs/'
+        name: 'Boris Cherny - 22 Tips for Claude Code',
+        url: 'https://www.builder.io/blog/claude-code-tips'
+      },
+      {
+        name: 'Zellij - Terminal Workspace',
+        url: 'https://zellij.dev/'
       }
     ]
   },
   {
     id: 12,
-    title: 'Taller Final — Disena tu Sistema de Agentes',
-    subtitle: 'Pon a prueba todo lo que aprendiste',
-    icon: '🏆',
-    duration: '60 min',
-    type: 'Simulacion con Timer',
+    title: 'Agentes en Produccion',
+    subtitle: 'GitHub Actions, headless mode, harnesses, y gestion de costos',
+    icon: '\u{1F3ED}',
+    duration: '45 min',
+    type: 'Teoria + Escenario con Timer',
     description:
-      'Simulacion completa donde debes disenar la arquitectura multi-agente correcta bajo presion',
+      'Llevar agentes a produccion: CI/CD con Claude Code, harnesses para tareas largas, costos, y observabilidad',
     objectives: [
-      'Analizar un problema real y proponer una arquitectura',
-      'Seleccionar frameworks y patrones correctos',
-      'Disenar guardrails y estrategia de evaluacion',
-      'Demostrar comprension integral del curso'
+      'Configurar Claude Code GitHub Action con trigger phrases',
+      'Usar headless mode en CI: -p, --allowedTools, --max-turns',
+      'Disenar harnesses para agentes de larga duracion (initializer, progress files)',
+      'Gestionar costos: opusplan, MAX_THINKING_TOKENS, batch API (50% ahorro)',
+      'Implementar rainbow deployments para no interrumpir agentes en ejecucion'
+    ],
+    sources: [
+      {
+        name: 'Claude Code - GitHub Actions',
+        url: 'https://code.claude.com/docs/en/github-actions'
+      },
+      {
+        name: 'Anthropic - Effective Harnesses for Long-Running Agents',
+        url: 'https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents'
+      },
+      {
+        name: 'Claude Code - Headless Mode',
+        url: 'https://code.claude.com/docs/en/headless'
+      },
+      {
+        name: 'Claude Code - Cost Management',
+        url: 'https://code.claude.com/docs/en/costs'
+      }
+    ]
+  },
+  {
+    id: 13,
+    title: 'Taller Final — Disena tu Sistema con Claude Code',
+    subtitle: 'Pon a prueba todo: CLAUDE.md, hooks, agents, orquestacion bajo presion',
+    icon: '\u{1F3C6}',
+    duration: '60 min',
+    type: 'Simulacion con Timer + Escenario Ramificado',
+    description:
+      'Simulacion completa: disena un sistema de code review para 200 PRs/dia usando Claude Code, hooks, agents y orquestacion',
+    objectives: [
+      'Sintetizar los 12 modulos previos en una solucion integral',
+      'Disenar un CLAUDE.md profesional para un equipo real',
+      'Configurar agent dispatch table y hooks de seguridad',
+      'Seleccionar el patron de orquestacion correcto bajo presion',
+      'Demostrar dominio integral de Claude Code como plataforma'
     ],
     sources: [
       {
         name: 'Anthropic - Building Effective AI Agents',
-        url: 'https://www.anthropic.com/research/building-effective-agents'
+        url: 'https://www.anthropic.com/engineering/building-effective-agents'
       },
       {
-        name: 'OpenAI - A Practical Guide to Building Agents',
-        url: 'https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf'
+        name: 'Claude Code - Best Practices',
+        url: 'https://code.claude.com/docs/en/best-practices'
       },
       {
-        name: 'Microsoft Azure - AI Agent Orchestration Patterns',
-        url: 'https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns'
+        name: 'Anthropic - Multi-Agent Research System',
+        url: 'https://www.anthropic.com/engineering/multi-agent-research-system'
       },
       {
-        name: 'OWASP Top 10 for LLM Applications 2025',
-        url: 'https://owasp.org/www-project-top-10-for-large-language-model-applications/'
+        name: 'Claude Code - Hooks Reference',
+        url: 'https://code.claude.com/docs/en/hooks'
+      },
+      {
+        name: 'Claude Code - Agent Teams',
+        url: 'https://code.claude.com/docs/en/agent-teams'
       }
     ]
   }

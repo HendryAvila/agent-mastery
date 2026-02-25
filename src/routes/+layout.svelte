@@ -28,7 +28,7 @@
         </a>
         <div class="flex items-center gap-4 text-sm">
           <span class="text-agent-muted">🎯 {totalScore} pts</span>
-          <span class="text-agent-muted">🏅 {badgeCount}/10</span>
+          <span class="text-agent-muted">{'\u{1F3C5}'} {badgeCount}/14</span>
         </div>
       </div>
       <ProgressBar />
