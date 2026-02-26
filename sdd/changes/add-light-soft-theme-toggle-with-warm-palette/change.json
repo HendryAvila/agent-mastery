@@ -1,0 +1,31 @@
+{
+  "id": "add-light-soft-theme-toggle-with-warm-palette",
+  "type": "feature",
+  "size": "small",
+  "description": "Add light soft theme toggle with warm palette alternative to dark mode",
+  "stages": [
+    {
+      "name": "describe",
+      "status": "completed",
+      "started_at": "2026-02-26T10:35:08Z",
+      "completed_at": "2026-02-26T10:35:33Z"
+    },
+    {
+      "name": "tasks",
+      "status": "completed",
+      "started_at": "2026-02-26T10:35:33Z",
+      "completed_at": "2026-02-26T10:36:03Z"
+    },
+    {
+      "name": "verify",
+      "status": "completed",
+      "started_at": "2026-02-26T10:36:03Z",
+      "completed_at": "2026-02-26T10:37:28Z"
+    }
+  ],
+  "current_stage": "verify",
+  "adrs": [],
+  "status": "completed",
+  "created_at": "2026-02-26T10:35:08Z",
+  "updated_at": "2026-02-26T10:37:28Z"
+}

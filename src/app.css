@@ -17,13 +17,36 @@
   --color-agent-glow: #06b6d4;
 }
 
+/* Light soft theme overrides — warm cream palette */
+[data-theme="light"] {
+  --color-agent-dark: #ede7db;
+  --color-agent-darker: #f5f0e8;
+  --color-agent-card: #faf7f2;
+  --color-agent-border: #d4c9b8;
+  --color-agent-accent: #0891b2;
+  --color-agent-accent-hover: #0e7490;
+  --color-agent-success: #16a34a;
+  --color-agent-danger: #dc2626;
+  --color-agent-info: #2563eb;
+  --color-agent-warning: #ca8a04;
+  --color-agent-text: #1c1917;
+  --color-agent-muted: #78716c;
+  --color-agent-highlight: #0e7490;
+  --color-agent-glow: #0891b2;
+}
+
 @layer base {
   body {
     @apply bg-agent-darker text-agent-text font-sans antialiased;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
   ::selection {
     @apply bg-agent-accent/30 text-white;
+  }
+
+  [data-theme="light"] ::selection {
+    @apply bg-agent-accent/30 text-agent-text;
   }
 
   h1, h2, h3 {
@@ -33,6 +56,32 @@
 
 @utility glow-accent {
   box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
+}
+
+[data-theme="light"] .glow-accent {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .btn-primary {
+  color: #ffffff;
+}
+
+[data-theme="light"] .code-block {
+  background-color: #f0ebe3;
+  border-color: #d4c9b8;
+}
+
+[data-theme="light"] .flow-node-active {
+  box-shadow: 0 2px 12px rgba(8, 145, 178, 0.15);
+}
+
+[data-theme="light"] .pulse-glow {
+  animation: pulse-glow-light 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow-light {
+  0%, 100% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); }
+  50% { box-shadow: 0 2px 12px rgba(8, 145, 178, 0.15); }
 }
 
 @layer components {

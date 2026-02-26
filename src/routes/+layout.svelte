@@ -2,6 +2,7 @@
   import '../app.css';
   import { base } from '$app/paths';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
+  import ThemeToggle from '$lib/components/ThemeToggle.svelte';
   import { courseStore } from '$lib/stores/course';
 
   let { children } = $props();
@@ -26,9 +27,10 @@
             <p class="text-xs text-agent-muted">De Usuario a Arquitecto de Agentes IA</p>
           </div>
         </a>
-        <div class="flex items-center gap-4 text-sm">
+        <div class="flex items-center gap-3 text-sm">
           <span class="text-agent-muted">🎯 {totalScore} pts</span>
           <span class="text-agent-muted">{'\u{1F3C5}'} {badgeCount}/14</span>
+          <ThemeToggle />
         </div>
       </div>
       <ProgressBar />
